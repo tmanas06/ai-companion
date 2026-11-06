@@ -96,13 +96,20 @@ class OllamaProvider(BaseProvider):
         except httpx.HTTPError as e:
             raise ProviderConfigurationError(f"Failed to pull model '{model}': {e}") from e
 
+    def _build_messages(self, request: CompletionRequest) -> list[dict]:
+        messages = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.extend(request.messages)
+        return messages
+
     async def complete(self, request: CompletionRequest) -> "CompletionResponse":
         await self._ensure_model(request.model)
         client = await self._get_client()
 
         payload = {
             "model": request.model,
-            "messages": request.messages,
+            "messages": self._build_messages(request),
             "options": {
                 "temperature": request.temperature,
             },
@@ -116,10 +123,14 @@ class OllamaProvider(BaseProvider):
             response.raise_for_status()
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama request timed out: {e}") from e
         except httpx.HTTPError as e:
             raise ProviderConfigurationError(f"Ollama inference request failed: {e}") from e
 
         data = response.json()
+        if "error" in data:
+            raise ProviderConfigurationError(f"Ollama error: {data['error']}")
 
         return CompletionResponse(
             content=data["message"]["content"],
@@ -138,7 +149,7 @@ class OllamaProvider(BaseProvider):
 
         payload = {
             "model": request.model,
-            "messages": request.messages,
+            "messages": self._build_messages(request),
             "options": {
                 "temperature": request.temperature,
             },
@@ -149,21 +160,34 @@ class OllamaProvider(BaseProvider):
 
         try:
             async with client.stream("POST", "/api/chat", json=payload) as response:
-                response.raise_for_status()
+                if response.status_code != 200:
+                    body = await response.aread()
+                    raise ProviderConfigurationError(
+                        f"Ollama returned HTTP error {response.status_code}: {body.decode(errors='replace')}"
+                    )
                 async for line in response.aiter_lines():
-                    if line.strip():
-                        try:
-                            import json
-                            data = json.loads(line)
-                            content = data.get("message", {}).get("content", "")
-                            if content:
-                                done = data.get("done", False)
-                                finish_reason = "stop" if done else None
-                                yield StreamingChunk(content=content, finish_reason=finish_reason)
-                        except json.JSONDecodeError:
-                            continue
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        import json
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if "error" in data:
+                        raise ProviderConfigurationError(f"Ollama streaming error: {data['error']}")
+
+                    content = data.get("message", {}).get("content", "")
+                    done = data.get("done", False)
+                    finish_reason = data.get("done_reason") or ("stop" if done else None)
+
+                    if content or done:
+                        yield StreamingChunk(content=content, finish_reason=finish_reason)
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama streaming request timed out: {e}") from e
         except httpx.HTTPError as e:
             raise ProviderConfigurationError(f"Ollama streaming request failed: {e}") from e
 

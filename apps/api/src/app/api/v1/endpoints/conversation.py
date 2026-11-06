@@ -1,6 +1,9 @@
+import asyncio
+import json
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -134,14 +137,48 @@ async def add_message(
     return message
 
 
-@router.post("/chat", response_model=ChatResponse)
+def format_sse(event: str, data: dict) -> str:
+    """Format Server-Sent Event string."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/chat")
 async def chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     service: ConversationService = Depends(get_conversation_service),
 ):
-    """Send a message and get AI response."""
+    """Send a message and get AI response (streaming SSE or non-streaming JSON)."""
+    if request.stream or "text/event-stream" in (http_request.headers.get("accept") or ""):
+        # Validate conversation ownership and companion active status upfront
+        try:
+            await service.authorize_chat(current_user.id, request)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+        async def event_generator():
+            try:
+                async for event in service.chat_stream(
+                    current_user.id, request, background_tasks=background_tasks
+                ):
+                    if await http_request.is_disconnected():
+                        break
+                    yield format_sse(event["event"], event["data"])
+            except asyncio.CancelledError:
+                pass
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     try:
         conversation, user_message, assistant_message = await service.chat(
             current_user.id, request, background_tasks=background_tasks
@@ -156,3 +193,16 @@ async def chat(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def chat_stream_endpoint(
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Dedicated streaming chat endpoint returning Server-Sent Events."""
+    request.stream = True
+    return await chat(request, background_tasks, http_request, current_user, service)

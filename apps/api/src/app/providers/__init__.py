@@ -108,6 +108,10 @@ class MockProvider(BaseProvider):
         response_content = f"[Mock] I received: '{last_user_msg[:50]}...' (model: {request.model})"
         words = response_content.split()
 
+        if not words:
+            yield StreamingChunk(content="", finish_reason="stop")
+            return
+
         for i, word in enumerate(words):
             chunk_content = word + (" " if i < len(words) - 1 else "")
             finish_reason = "stop" if i == len(words) - 1 else None

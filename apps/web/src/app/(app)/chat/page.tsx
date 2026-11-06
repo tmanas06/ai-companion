@@ -18,6 +18,22 @@ export default function ChatPage() {
   const [companions, setCompanions] = useState<Companion[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  function handleStopGeneration() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -27,6 +43,7 @@ export default function ChatPage() {
         setConversations(data.conversations);
         if (data.conversations.length > 0 && !activeConversationId) {
           setActiveConversationId(data.conversations[0].id);
+          loadMessages(data.conversations[0].id);
         }
       }
     } catch (err) {
@@ -73,6 +90,10 @@ export default function ChatPage() {
   }
 
   async function handleConversationSelect(conversationId: string) {
+    if (isSending && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setActiveConversationId(conversationId);
     setMessages([]);
     await loadMessages(conversationId);
@@ -111,31 +132,19 @@ export default function ChatPage() {
     e.preventDefault();
     if (!input.trim() || !activeConversationId || isSending) return;
 
-    const messageContent = input;
+    const messageContent = input.trim();
     setInput('');
     setIsSending(true);
     setError('');
 
-    try {
-      const response = await fetch('/api/conversations/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageContent,
-          conversation_id: activeConversationId,
-        }),
-      });
+    const tempUserId = `user-${Date.now()}`;
+    const tempAssistantId = `assistant-temp-${Date.now()}`;
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to send message');
-      }
-
-      const data = await response.json();
-
-      // Add user message
-      setMessages((prev) => [...prev, {
-        id: `user-${Date.now()}`,
+    // Add user message and assistant placeholder immediately
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: tempUserId,
         conversation_id: activeConversationId!,
         role: 'user',
         content: messageContent,
@@ -145,28 +154,148 @@ export default function ChatPage() {
         tool_call_id: null,
         metadata: {},
         created_at: new Date().toISOString(),
-      }]);
-
-      // Add assistant message
-      setMessages((prev) => [...prev, {
-        id: data.message_id,
-        conversation_id: data.conversation_id,
+      },
+      {
+        id: tempAssistantId,
+        conversation_id: activeConversationId!,
         role: 'assistant',
-        content: data.content,
-        token_count: data.token_count,
-        model: data.model,
+        content: '',
+        token_count: null,
+        model: null,
         tool_calls: null,
         tool_call_id: null,
-        metadata: { finish_reason: data.finish_reason },
+        metadata: {},
         created_at: new Date().toISOString(),
-      }]);
+      },
+    ]);
 
-      // Refresh conversations to update last_message_at
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    let accumulatedContent = '';
+
+    try {
+      const response = await fetch('/api/conversations/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: messageContent,
+          conversation_id: activeConversationId,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
+        throw new Error(data.detail || 'Failed to send message');
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream') && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+              currentEvent = '';
+              continue;
+            }
+            if (trimmed.startsWith('event:')) {
+              currentEvent = trimmed.slice(6).trim();
+            } else if (trimmed.startsWith('data:')) {
+              try {
+                const parsed = JSON.parse(trimmed.slice(5).trim());
+                if (currentEvent === 'chunk') {
+                  accumulatedContent += parsed.content || '';
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === tempAssistantId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    )
+                  );
+                } else if (currentEvent === 'completion') {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === tempAssistantId
+                        ? {
+                            ...m,
+                            id: parsed.message_id || m.id,
+                            content: parsed.content || accumulatedContent,
+                            model: parsed.model,
+                            token_count: parsed.token_count,
+                            metadata: { finish_reason: parsed.finish_reason },
+                          }
+                        : m
+                    )
+                  );
+                } else if (currentEvent === 'error') {
+                  throw new Error(parsed.detail || 'Streaming error occurred');
+                }
+              } catch (parseErr) {
+                if (parseErr instanceof Error && currentEvent === 'error') {
+                  throw parseErr;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        const data = await response.json();
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempAssistantId
+              ? {
+                  ...m,
+                  id: data.message_id || m.id,
+                  content: data.content,
+                  token_count: data.token_count,
+                  model: data.model,
+                  metadata: { finish_reason: data.finish_reason },
+                }
+              : m
+          )
+        );
+      }
+
       loadConversations();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
+    } catch (err: unknown) {
+      const errorObj = err as { name?: string; message?: string };
+      if (errorObj?.name === 'AbortError') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempAssistantId
+              ? {
+                  ...m,
+                  content: accumulatedContent
+                    ? `${accumulatedContent} (Generation stopped)`
+                    : '(Generation stopped)',
+                  metadata: { finish_reason: 'interrupted' },
+                }
+              : m
+          )
+        );
+      } else {
+        if (!accumulatedContent) {
+          setMessages((prev) => prev.filter((m) => m.id !== tempAssistantId));
+        }
+        setError(errorObj?.message || 'Failed to send message');
+      }
     } finally {
       setIsSending(false);
+      abortControllerRef.current = null;
     }
   }
 
@@ -253,7 +382,20 @@ export default function ChatPage() {
               : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-tl-none'
           )}
           >
-            <p className="whitespace-pre-wrap">{msg.content}</p>
+            {msg.content ? (
+              <p className="whitespace-pre-wrap">
+                {msg.content}
+                {isSending && msg.id.startsWith('assistant-temp-') && (
+                  <span className="inline-block w-1.5 h-4 ml-1 bg-primary-500 animate-pulse align-middle" />
+                )}
+              </p>
+            ) : (
+              <div className="flex items-center gap-1.5 py-1">
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
           </div>
         </div>
       );
@@ -333,20 +475,6 @@ export default function ChatPage() {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={messagesEndRef}>
                 {messagesList}
-                {isSending && (
-                  <div className="flex gap-3 justify-start p-4">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                      <svg className="w-5 h-5 animate-spin text-slate-400" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    </div>
-                    <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-2xl rounded-tl-none max-w-[70%]">
-                      <div className="h-4 bg-slate-300 dark:bg-slate-600 rounded animate-pulse w-3/4 mb-1"></div>
-                      <div className="h-4 bg-slate-300 dark:bg-slate-600 rounded animate-pulse w-1/2"></div>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Input */}
@@ -367,21 +495,40 @@ export default function ChatPage() {
                       }
                     }}
                   />
-                  <button
-                    type="submit"
-                    disabled={!input.trim() || isSending}
-                    className={cn(
-                      'px-6 py-3 rounded-xl font-medium text-white flex items-center justify-center',
-                      'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                      'disabled:opacity-50 disabled:cursor-not-allowed',
-                      'transition-colors'
-                    )}
-                    style={{ backgroundColor: 'rgb(14 165 233)' }}
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                  </button>
+                  {isSending ? (
+                    <button
+                      type="button"
+                      onClick={handleStopGeneration}
+                      className={cn(
+                        'px-5 py-3 rounded-xl font-medium text-white flex items-center justify-center',
+                        'bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2'
+                      )}
+                      title="Stop generation"
+                    >
+                      <svg className="w-5 h-5 mr-1.5" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                      </svg>
+                      <span className="text-xs font-semibold">Stop</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      aria-label="Send message"
+                      disabled={!input.trim()}
+                      className={cn(
+                        'px-6 py-3 rounded-xl font-medium text-white flex items-center justify-center',
+                        'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                        'disabled:opacity-50 disabled:cursor-not-allowed',
+                        'transition-colors'
+                      )}
+                      style={{ backgroundColor: 'rgb(14 165 233)' }}
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </form>
             </div>

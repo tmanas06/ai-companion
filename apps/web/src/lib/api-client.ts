@@ -10,6 +10,7 @@ import {
   keysToCamelCase,
   ApiError,
 } from './api';
+import type { ChatStreamEvent } from '@ai-companion/shared';
 
 interface RequestOptions {
   method?: string;
@@ -39,6 +40,7 @@ interface TypedApiClient {
   listMessages: (conversationId: string, params?: ListParams) => Promise<MessageListResponse>;
   addMessage: (conversationId: string, data: MessageCreate) => Promise<Message>;
   chat: (request: ChatRequest) => Promise<ChatResponse>;
+  chatStream: (request: ChatRequest, signal?: AbortSignal) => AsyncGenerator<ChatStreamEvent>;
 
   // Memories
   createMemory: (data: MemoryCreate) => Promise<Memory>;
@@ -485,6 +487,71 @@ class ApiClient implements TypedApiClient {
       method: 'POST',
       body: request,
     });
+  }
+
+  async *chatStream(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+    const url = buildUrl(this.baseUrl, `/api/${API_VERSION}/conversations/chat`);
+    const authToken = this.getAccessToken();
+    const requestHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authToken) {
+      requestHeaders['Authorization'] = `Bearer ${authToken}`;
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify({
+        message: request.message,
+        conversation_id: request.conversationId,
+        companion_id: request.companionId,
+        stream: true,
+      }),
+      signal,
+      credentials: 'include',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Streaming chat request failed');
+    }
+
+    if (!res.body) {
+      throw new Error('Response body is missing');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let currentEvent = '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          currentEvent = '';
+          continue;
+        }
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          try {
+            const data = JSON.parse(trimmed.slice(5).trim());
+            yield { event: currentEvent, data } as ChatStreamEvent;
+          } catch {
+            // ignore malformed SSE line
+          }
+        }
+      }
+    }
   }
 
   // Memories

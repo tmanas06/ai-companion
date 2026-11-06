@@ -140,3 +140,45 @@ export type ConsentStatus = Memory["consentStatus"];
 export type MessageRole = Message["role"];
 export type AvatarLayerType = AvatarLayer["type"];
 export type PrivacyMode = "strict-local" | "private-machine" | "cloud-allowed";
+
+export interface ChatStreamStartEvent {
+  event: "start";
+  data: {
+    conversation_id: string;
+    user_message_id: string;
+    model: string;
+  };
+}
+
+export interface ChatStreamChunkEvent {
+  event: "chunk";
+  data: {
+    content: string;
+  };
+}
+
+export interface ChatStreamCompletionEvent {
+  event: "completion";
+  data: {
+    conversation_id: string;
+    message_id: string;
+    content: string;
+    model: string;
+    token_count: number | null;
+    finish_reason: string | null;
+  };
+}
+
+export interface ChatStreamErrorEvent {
+  event: "error";
+  data: {
+    detail: string;
+    error_type?: string;
+  };
+}
+
+export type ChatStreamEvent =
+  | ChatStreamStartEvent
+  | ChatStreamChunkEvent
+  | ChatStreamCompletionEvent
+  | ChatStreamErrorEvent;
