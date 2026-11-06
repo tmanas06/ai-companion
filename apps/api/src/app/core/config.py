@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000", "http://localhost:8081"])
+    CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000", "http://localhost:3001", "http://localhost:8081"])
 
     OPENAI_API_KEY: str | None = None
     OPENAI_ORG_ID: str | None = None

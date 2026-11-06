@@ -122,14 +122,40 @@ window.HTMLMediaElement.prototype.pause = jest.fn().mockImplementation(function 
 });
 
 // Mock SpeechSynthesis
+class MockSpeechSynthesisUtterance {
+  text = '';
+  rate = 1;
+  pitch = 1;
+  voice: SpeechSynthesisVoice | null = null;
+  lang = 'en-US';
+  onstart: (() => void) | null = null;
+  onend: ((e: unknown) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  constructor(text = '') {
+    this.text = text;
+  }
+}
+// @ts-expect-error Mock SpeechSynthesisUtterance
+global.SpeechSynthesisUtterance = MockSpeechSynthesisUtterance;
+// @ts-expect-error Mock SpeechSynthesisUtterance on window
+window.SpeechSynthesisUtterance = MockSpeechSynthesisUtterance;
+
 const mockSpeechSynthesis = {
-  speak: jest.fn((utterance: SpeechSynthesisUtterance) => {
+  paused: false,
+  speak: jest.fn((utterance: MockSpeechSynthesisUtterance) => {
     setTimeout(() => {
-      utterance.onend?.(new Event('end') as unknown as SpeechSynthesisEvent);
+      utterance.onstart?.();
+    }, 0);
+    setTimeout(() => {
+      utterance.onend?.(new Event('end'));
     }, 10);
   }),
   cancel: jest.fn(),
+  resume: jest.fn(),
+  pause: jest.fn(),
   getVoices: jest.fn().mockReturnValue([]),
+  addEventListener: jest.fn(),
+  removeEventListener: jest.fn(),
 };
 Object.defineProperty(window, 'speechSynthesis', {
   value: mockSpeechSynthesis,

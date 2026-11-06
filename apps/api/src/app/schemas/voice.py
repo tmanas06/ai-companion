@@ -32,4 +32,5 @@ class VoiceTurnResponse(BaseModel):
     companion_name: str
     audio_base64: Optional[str] = None
     audio_format: str = "audio/wav"
+    tts_provider: Optional[str] = "mock"
     model: str

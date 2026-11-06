@@ -28,11 +28,61 @@ export function useLiveVoiceCompanion({
   const [lastCompanionSpeech, setLastCompanionSpeech] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState<number>(0);
-  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
-    speechRate: 1.0,
-    pitch: 1.0,
-    ttsEngine: 'backend',
+  const [voiceSettings, setVoiceSettingsState] = useState<VoiceSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('ai_companion_voice_settings');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return {
+            speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : 1.0,
+            pitch: typeof parsed.pitch === 'number' ? parsed.pitch : 1.0,
+            ttsEngine: parsed.ttsEngine === 'backend' ? 'backend' : 'browser',
+            voiceName: parsed.voiceName,
+          };
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+    return {
+      speechRate: 1.0,
+      pitch: 1.0,
+      ttsEngine: 'browser',
+    };
   });
+
+  const setVoiceSettings = useCallback((newSettings: VoiceSettings) => {
+    setVoiceSettingsState(newSettings);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ai_companion_voice_settings', JSON.stringify(newSettings));
+      } catch (e) {
+        // Ignored
+      }
+    }
+  }, []);
+
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const updateVoices = () => {
+      try {
+        const v = window.speechSynthesis.getVoices();
+        if (v && v.length > 0) {
+          setAvailableVoices(v);
+        }
+      } catch (e) {
+        // Ignored
+      }
+    };
+    updateVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', updateVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', updateVoices);
+    };
+  }, []);
 
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -41,6 +91,7 @@ export function useLiveVoiceCompanion({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSessionIdRef = useRef<number>(0);
 
@@ -104,6 +155,7 @@ export function useLiveVoiceCompanion({
     // 4. Cancel browser speech synthesis if active
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+      activeUtteranceRef.current = null;
     }
 
     // 5. Cleanup microphone if active
@@ -143,6 +195,7 @@ export function useLiveVoiceCompanion({
         audio.onplay = () => {
           if (sessionId === activeSessionIdRef.current) {
             setState('speaking');
+            setErrorMessage(null);
           } else {
             audio.pause();
           }
@@ -185,35 +238,88 @@ export function useLiveVoiceCompanion({
         return;
       }
 
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = voiceSettings.speechRate;
-      utterance.pitch = voiceSettings.pitch;
-
-      utterance.onstart = () => {
-        if (sessionId === activeSessionIdRef.current) {
-          setState('speaking');
-        } else {
-          window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
         }
-      };
 
-      utterance.onend = () => {
-        if (sessionId === activeSessionIdRef.current) {
-          setState('idle');
-          setAudioLevel(0);
+        const utterance = new SpeechSynthesisUtterance(text);
+        activeUtteranceRef.current = utterance;
+        utterance.rate = voiceSettings.speechRate;
+        utterance.pitch = voiceSettings.pitch;
+
+        // Select chosen voice or suitable English voice
+        const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
+        if (voices && voices.length > 0) {
+          let selected = voiceSettings.voiceName
+            ? voices.find((v) => v.name === voiceSettings.voiceName || v.voiceURI === voiceSettings.voiceName)
+            : undefined;
+
+          if (!selected) {
+            selected =
+              voices.find(
+                (v) =>
+                  v.lang.startsWith('en') &&
+                  (v.name.includes('Female') ||
+                    v.name.includes('Natural') ||
+                    v.name.includes('Zira') ||
+                    v.name.includes('Samantha') ||
+                    v.name.includes('Google') ||
+                    v.name.includes('Jenny'))
+              ) ||
+              voices.find((v) => v.lang.startsWith('en')) ||
+              voices[0];
+          }
+
+          if (selected) {
+            utterance.voice = selected;
+            utterance.lang = selected.lang || 'en-US';
+          }
         }
-      };
 
-      utterance.onerror = () => {
-        if (sessionId === activeSessionIdRef.current) {
-          setState('idle');
+        utterance.onstart = () => {
+          if (sessionId === activeSessionIdRef.current) {
+            setState('speaking');
+            setErrorMessage(null);
+          } else {
+            window.speechSynthesis.cancel();
+          }
+        };
+
+        utterance.onend = () => {
+          if (sessionId === activeSessionIdRef.current) {
+            setState('idle');
+            setAudioLevel(0);
+          }
+          activeUtteranceRef.current = null;
+        };
+
+        utterance.onerror = (e) => {
+          if ((e as { error?: string })?.error === 'canceled' || (e as { error?: string })?.error === 'interrupted') {
+            return;
+          }
+          if (sessionId === activeSessionIdRef.current) {
+            setState('idle');
+            setAudioLevel(0);
+          }
+          activeUtteranceRef.current = null;
+        };
+
+        setState('speaking');
+        setErrorMessage(null);
+
+        window.speechSynthesis.speak(utterance);
+
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
         }
-      };
-
-      window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.error('Speech synthesis execution failed:', e);
+        setState('idle');
+      }
     },
-    [voiceSettings]
+    [availableVoices, voiceSettings]
   );
 
   // Submit audio to backend voice turn orchestration
@@ -275,9 +381,11 @@ export function useLiveVoiceCompanion({
 
         setTranscript(transcriptText);
         setLastCompanionSpeech(replyText);
+        setErrorMessage(null);
 
         // Play companion response
-        if (voiceSettings.ttsEngine === 'browser' || !data.audio_base64) {
+        const isMockBackend = data.tts_provider === 'mock' || !data.audio_base64;
+        if (voiceSettings.ttsEngine === 'browser' || isMockBackend) {
           playBrowserSpeech(replyText, currentSessionId);
         } else {
           playAssistantAudio(data.audio_base64, replyText, currentSessionId);
@@ -410,6 +518,13 @@ export function useLiveVoiceCompanion({
     [interrupt, submitVoiceTurn]
   );
 
+  // Replay last speech response
+  const replaySpeech = useCallback(() => {
+    if (!lastCompanionSpeech) return;
+    const currentSessionId = ++activeSessionIdRef.current;
+    playBrowserSpeech(lastCompanionSpeech, currentSessionId);
+  }, [lastCompanionSpeech, playBrowserSpeech]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -434,6 +549,8 @@ export function useLiveVoiceCompanion({
     audioLevel,
     voiceSettings,
     setVoiceSettings,
+    availableVoices,
+    replaySpeech,
     startListening,
     stopListening,
     interrupt,

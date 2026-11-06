@@ -52,6 +52,8 @@ function LiveCompanionStage() {
     audioLevel,
     voiceSettings,
     setVoiceSettings,
+    availableVoices,
+    replaySpeech,
     startListening,
     stopListening,
     interrupt,
@@ -403,7 +405,7 @@ function LiveCompanionStage() {
         </div>
 
         {/* Error Notification Alert */}
-        {errorMessage && (
+        {errorMessage && state === 'error' && (
           <div className="mb-4 w-full max-w-md p-4 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs flex items-center justify-between shadow-xl animate-in fade-in duration-200">
             <div className="flex items-center space-x-2.5">
               <svg className="w-4 h-4 text-rose-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -441,9 +443,28 @@ function LiveCompanionStage() {
           <div className="mt-8 max-w-xl text-center px-6 min-h-[5rem] flex items-center justify-center">
             {state === 'speaking' || lastCompanionSpeech ? (
               <div className="space-y-1.5 animate-in fade-in duration-300">
-                <p className="text-base sm:text-lg text-slate-100 font-medium leading-relaxed drop-shadow-sm">
-                  &ldquo;{lastCompanionSpeech}&rdquo;
-                </p>
+                <div className="flex items-center justify-center space-x-2">
+                  <p className="text-base sm:text-lg text-slate-100 font-medium leading-relaxed drop-shadow-sm">
+                    &ldquo;{lastCompanionSpeech}&rdquo;
+                  </p>
+                  {lastCompanionSpeech && state !== 'speaking' && (
+                    <button
+                      onClick={replaySpeech}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-violet-300 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition"
+                      title="Replay voice response"
+                      aria-label="Replay voice response"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                        />
+                      </svg>
+                    </button>
+                  )}
+                </div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-violet-400">
                   {selectedCompanion?.name}
                 </div>
@@ -604,6 +625,8 @@ function LiveCompanionStage() {
         onClose={() => setIsSettingsOpen(false)}
         settings={voiceSettings}
         onUpdateSettings={setVoiceSettings}
+        availableVoices={availableVoices}
+        onTestVoice={replaySpeech}
       />
     </div>
   );

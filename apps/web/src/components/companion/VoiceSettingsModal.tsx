@@ -8,6 +8,8 @@ interface VoiceSettingsModalProps {
   onClose: () => void;
   settings: VoiceSettings;
   onUpdateSettings: (newSettings: VoiceSettings) => void;
+  availableVoices?: SpeechSynthesisVoice[];
+  onTestVoice?: () => void;
 }
 
 export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
@@ -15,6 +17,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   onClose,
   settings,
   onUpdateSettings,
+  availableVoices = [],
+  onTestVoice,
 }) => {
   if (!isOpen) return null;
 
@@ -52,17 +56,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => onUpdateSettings({ ...settings, ttsEngine: 'backend' })}
-              className={`p-3 rounded-2xl text-left border transition ${
-                settings.ttsEngine === 'backend'
-                  ? 'border-violet-500 bg-violet-600/10 text-violet-300'
-                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              <div className="text-sm font-medium">Local Backend TTS</div>
-              <div className="text-xs text-slate-500 mt-0.5">WAV audio stream</div>
-            </button>
-            <button
               onClick={() => onUpdateSettings({ ...settings, ttsEngine: 'browser' })}
               className={`p-3 rounded-2xl text-left border transition ${
                 settings.ttsEngine === 'browser'
@@ -71,10 +64,62 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               }`}
             >
               <div className="text-sm font-medium">Browser Speech</div>
-              <div className="text-xs text-slate-500 mt-0.5">Built-in OS voice</div>
+              <div className="text-xs text-slate-500 mt-0.5">High-quality native voice</div>
+            </button>
+            <button
+              onClick={() => onUpdateSettings({ ...settings, ttsEngine: 'backend' })}
+              className={`p-3 rounded-2xl text-left border transition ${
+                settings.ttsEngine === 'backend'
+                  ? 'border-violet-500 bg-violet-600/10 text-violet-300'
+                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              <div className="text-sm font-medium">Local Backend TTS</div>
+              <div className="text-xs text-slate-500 mt-0.5">Piper neural / eSpeak</div>
             </button>
           </div>
         </div>
+
+        {/* Browser Voice Picker (when voices are available) */}
+        {settings.ttsEngine === 'browser' && availableVoices.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Voice Selection
+              </label>
+              {onTestVoice && (
+                <button
+                  type="button"
+                  onClick={onTestVoice}
+                  className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition"
+                  title="Test spoken voice"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                    />
+                  </svg>
+                  <span>Test Voice</span>
+                </button>
+              )}
+            </div>
+            <select
+              value={settings.voiceName || ''}
+              onChange={(e) => onUpdateSettings({ ...settings, voiceName: e.target.value })}
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 truncate"
+            >
+              <option value="">Default Recommended Voice (Natural)</option>
+              {availableVoices.map((voice) => (
+                <option key={voice.voiceURI || voice.name} value={voice.name}>
+                  {voice.name} ({voice.lang})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Speed slider */}
         <div className="space-y-2">

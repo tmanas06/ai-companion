@@ -134,6 +134,7 @@ class VoiceService:
             companion_name=companion.name,
             audio_base64=audio_b64,
             audio_format="audio/wav",
+            tts_provider=getattr(self.tts_provider, "provider_type", "mock"),
             model=assistant_msg.model or "ollama",
         )
 
