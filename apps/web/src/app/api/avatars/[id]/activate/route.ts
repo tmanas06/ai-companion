@@ -14,7 +14,7 @@ export async function POST(
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/avatars/${id}/activate`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars/${id}/activate`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,

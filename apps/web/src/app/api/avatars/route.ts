@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const queryString = searchParams.toString();
   
   const response = await fetch(
-    `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/avatars?${queryString}`,
+    `${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars?${queryString}`,
     {
       method: 'GET',
       headers: {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/avatars`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,

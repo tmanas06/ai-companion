@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/me`, {
+    const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/me`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       // Try to refresh token
       const refreshToken = request.cookies.get('refresh_token')?.value;
       if (refreshToken) {
-        const refreshResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/refresh`, {
+        const refreshResponse = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: refreshToken }),
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
           const refreshData = await refreshResponse.json();
           
           // Retry with new token
-          const retryResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/me`, {
+          const retryResponse = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/me`, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${refreshData.access_token}`,

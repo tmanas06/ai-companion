@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/refresh`, {
+    const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

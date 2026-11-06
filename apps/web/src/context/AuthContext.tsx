@@ -5,7 +5,14 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User } from '@/lib/api';
+
+interface User {
+  id: string;
+  email: string;
+  fullName?: string | null;
+  full_name?: string | null;
+  is_active?: boolean;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -80,9 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  async function refreshUser() {
-    await refreshUser();
-  }
 
   return (
     <AuthContext.Provider

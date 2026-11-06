@@ -4,7 +4,6 @@
  */
 
 import {
-  RequestOptions,
   buildUrl,
   isSuccessResponse,
   parseApiError,
@@ -12,7 +11,15 @@ import {
   ApiError,
 } from './api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+interface RequestOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  params?: Partial<Record<string, string | number | boolean>>;
+  signal?: AbortSignal;
+}
+
+const API_BASE = process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:8000';
 const API_VERSION = 'v1';
 
 interface TypedApiClient {
@@ -208,6 +215,7 @@ interface MemoryListResponse {
 }
 
 interface MemoryListParams {
+  [key: string]: string | number | boolean | undefined;
   companionId?: string;
   memoryType?: string;
   consentStatus?: string;
@@ -217,6 +225,7 @@ interface MemoryListParams {
 }
 
 interface SearchParams {
+  [key: string]: string | number | boolean | undefined;
   q: string;
   companionId?: string;
   includeSensitive?: boolean;
@@ -290,11 +299,13 @@ interface AvatarAssetListResponse {
 }
 
 interface ListParams {
+  [key: string]: string | number | boolean | undefined;
   page?: number;
   pageSize?: number;
 }
 
 interface AssetListParams extends ListParams {
+  [key: string]: string | number | boolean | undefined;
   layerType?: string;
 }
 
@@ -324,7 +335,7 @@ class ApiClient implements TypedApiClient {
     options: RequestOptions = {}
   ): Promise<T> {
     const { method = 'GET', headers = {}, body, params, signal } = options;
-    const url = buildUrl(this.baseUrl, `/api/${API_VERSION}${path}`, params);
+    const url = buildUrl(this.baseUrl, `/api/${API_VERSION}${path}`, params as Record<string, string | number | boolean | undefined> | undefined);
 
     const authToken = this.getAccessToken();
     const requestHeaders: Record<string, string> = {
@@ -333,7 +344,7 @@ class ApiClient implements TypedApiClient {
     };
 
     if (authToken) {
-      requestHeaders.Authorization = `Bearer ${authToken}`;
+      requestHeaders['Authorization'] = `Bearer ${authToken}`;
     }
 
     const requestInit: RequestInit = {
@@ -383,10 +394,10 @@ class ApiClient implements TypedApiClient {
       throw new ApiErrorResponse(response.status, error);
     }
 
-    const data = await response.json();
-    const camelData = keysToCamelCase(data);
-    this.setTokens(camelData.accessToken, camelData.refreshToken);
-    return camelData;
+    const loginData = await response.json();
+    const camelData = keysToCamelCase(loginData);
+    this.setTokens(camelData.accessToken as string, camelData.refreshToken as string);
+    return camelData as TokenResponse;
   }
 
   async logout(): Promise<void> {

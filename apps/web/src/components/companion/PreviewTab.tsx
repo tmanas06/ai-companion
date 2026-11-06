@@ -15,7 +15,7 @@ interface PreviewTabProps {
 
 export const PreviewTab = ({
   activeAvatar,
-  _assets,
+  assets: _assets,
   avatars,
   setActiveAvatar,
   handleActivate,
@@ -121,7 +121,7 @@ export const PreviewTab = ({
 };
 
 // Type definitions
-interface Avatar {
+export interface Avatar {
   id: string;
   user_id: string;
   name: string;
@@ -133,12 +133,12 @@ interface Avatar {
   updated_at: string;
 }
 
-interface AvatarConfig {
+export interface AvatarConfig {
   version: number;
   layers: AvatarLayer[];
 }
 
-interface AvatarLayer {
+export interface AvatarLayer {
   type: 'background' | 'skin' | 'eyes' | 'hair' | 'clothing' | 'accessory' | 'background';
   variant: string;
   color?: string;
@@ -146,10 +146,15 @@ interface AvatarLayer {
   visible: boolean;
 }
 
-interface Asset {
+export interface Asset {
   id: string;
   layer_type: string;
   variant: string;
   asset_url: string;
   metadata: Record<string, unknown>;
+}
+
+export interface AvatarFormData {
+  name: string;
+  config: AvatarConfig;
 }

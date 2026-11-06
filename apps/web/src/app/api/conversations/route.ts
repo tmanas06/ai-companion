@@ -3,7 +3,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = process.env.API_BASE_URL || 'http://localhost:8000';
+const API_BASE = process.env["API_BASE_URL"] || 'http://localhost:8000';
 
 async function forwardRequest(
   request: NextRequest,
@@ -18,7 +18,7 @@ async function forwardRequest(
   };
 
   if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
+    headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
   const response = await fetch(`${API_BASE}/api/v1/conversations${path}`, {

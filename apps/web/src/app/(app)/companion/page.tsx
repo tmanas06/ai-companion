@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 import { PreviewTab } from '@/components/companion/PreviewTab';
 import { CustomizeTab } from './CustomizeTab';
-import type { Avatar, Asset, AvatarFormData } from '@/components/companion/PreviewTab';
+import type { Avatar, Asset, AvatarConfig, AvatarFormData } from '@/components/companion/PreviewTab';
 
 export default function CompanionPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -92,7 +92,8 @@ export default function CompanionPage() {
         const data = await response.json();
         const grouped = data.assets.reduce((acc: Record<string, Asset[]>, asset: Asset) => {
           if (!acc[asset.layer_type]) acc[asset.layer_type] = [];
-          acc[asset.layer_type].push(asset);
+          const bucket = acc[asset.layer_type];
+          if (bucket) bucket.push(asset);
           return acc;
         }, {});
         setAssets(grouped);
@@ -145,11 +146,11 @@ export default function CompanionPage() {
   }
 
   function handleLayerChange(layerType: string, variant: string) {
-    setFormData((prev) => ({
+    setFormData((prev: AvatarFormData) => ({
       ...prev,
       config: {
         ...prev.config,
-        layers: prev.config.layers.map((l) =>
+        layers: prev.config.layers.map((l: AvatarConfig['layers'][number]) =>
           l.type === layerType ? { ...l, variant } : l
         ),
       },

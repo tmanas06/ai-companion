@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const queryString = searchParams.toString();
   
   const response = await fetch(
-    `${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/memories/search?${queryString}`,
+    `${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/memories/search?${queryString}`,
     {
       method: 'GET',
       headers: {

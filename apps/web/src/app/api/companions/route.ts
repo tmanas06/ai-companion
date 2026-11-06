@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/companions`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/companions`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,

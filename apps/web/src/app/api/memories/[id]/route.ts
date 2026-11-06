@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/memories/${id}`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/memories/${id}`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,
@@ -38,7 +38,7 @@ export async function PATCH(
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/memories/${id}`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/memories/${id}`, {
     method: 'PATCH',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -62,7 +62,7 @@ export async function DELETE(
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env.API_BASE_URL || 'http://localhost:8000'}/api/v1/memories/${id}`, {
+  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/memories/${id}`, {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
