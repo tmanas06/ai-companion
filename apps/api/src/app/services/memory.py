@@ -5,7 +5,7 @@ from fastapi import Depends
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_async_session
+from app.core.database import get_db
 from app.models import Memory, User, Companion, Conversation
 from app.schemas.memory import MemoryCreate, MemoryUpdate, ConsentRequest
 
@@ -30,10 +30,10 @@ class MemoryService:
             self._embedding_provider = get_embedding_provider()
         return self._embedding_provider
 
-    async def create_memory(
+    async def _prepare_memory_record(
         self, user_id: UUID, data: MemoryCreate
     ) -> "Memory":
-        """Create a new memory with automatic embedding for eligible records."""
+        """Validate, generate embedding (if eligible), and construct Memory instance."""
         # Verify companion exists and belongs to user
         companion = await self.session.get(Companion, data.companion_id)
         if not companion or companion.user_id != user_id:
@@ -55,7 +55,7 @@ class MemoryService:
             provider = self._get_embedding_provider()
             embedding_vector = await provider.embed(data.content)
 
-        memory = Memory(
+        return Memory(
             user_id=user_id,
             companion_id=data.companion_id,
             conversation_id=data.conversation_id,
@@ -69,8 +69,18 @@ class MemoryService:
             consent_requested_at=consent_requested_at,
             embedding=embedding_vector,
         )
+
+    async def create_memory(
+        self, user_id: UUID, data: MemoryCreate
+    ) -> "Memory":
+        """Create a new memory with automatic embedding for eligible records."""
+        memory = await self._prepare_memory_record(user_id, data)
         self.session.add(memory)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
         await self.session.refresh(memory)
         return memory
 
@@ -125,6 +135,12 @@ class MemoryService:
         self, user_id: UUID, memory_id: UUID, data: MemoryUpdate
     ) -> Optional["Memory"]:
         """Update a memory, regenerating embedding if content changes on an approved record."""
+        if data.consent_status is not None:
+            raise ValueError(
+                "Consent status cannot be modified via generic memory update; "
+                "use the dedicated consent endpoint POST /api/v1/memories/{id}/consent."
+            )
+
         memory = await self.get_memory(user_id, memory_id)
         if not memory:
             return None
@@ -145,16 +161,13 @@ class MemoryService:
             memory.confidence = data.confidence
         if data.is_sensitive is not None:
             memory.is_sensitive = data.is_sensitive
-        if data.consent_status is not None:
-            memory.consent_status = data.consent_status
-            if data.consent_status == "approved" and memory.consent_granted_at is None:
-                memory.consent_granted_at = datetime.now(UTC)
-                if memory.embedding is None:
-                    provider = self._get_embedding_provider()
-                    memory.embedding = await provider.embed(memory.content)
 
         memory.updated_at = datetime.now(UTC)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
         await self.session.refresh(memory)
         return memory
 
@@ -166,26 +179,42 @@ class MemoryService:
 
         memory.deleted_at = datetime.now(UTC)
         memory.embedding = None
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
         return True
 
     async def supersede_memory(
         self, user_id: UUID, old_memory_id: UUID, new_data: MemoryCreate
     ) -> "Memory":
-        """Create a new memory that supersedes an old one."""
+        """Create a new memory that supersedes an old one in a single atomic transaction."""
         old_memory = await self.get_memory(user_id, old_memory_id)
         if not old_memory:
             raise ValueError("Original memory not found")
 
-        # Create new memory
-        new_memory = await self.create_memory(old_memory.user_id, new_data)
+        # Prepare new memory (validates companion/conversation and generates embedding if eligible)
+        # Any validation or embedding failure occurs upfront before touching old_memory
+        new_memory = await self._prepare_memory_record(old_memory.user_id, new_data)
 
-        # Link old memory to new one and clear old embedding
-        old_memory.superseded_by = new_memory.id
-        old_memory.deleted_at = datetime.now(UTC)
-        old_memory.embedding = None
-        await self.session.commit()
+        try:
+            # Flush new_memory within the open transaction so its id exists for the foreign key
+            self.session.add(new_memory)
+            await self.session.flush()
 
+            # Atomically link old memory to new one and clear old embedding
+            old_memory.superseded_by = new_memory.id
+            old_memory.deleted_at = datetime.now(UTC)
+            old_memory.embedding = None
+            self.session.add(old_memory)
+
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+
+        await self.session.refresh(new_memory)
         return new_memory
 
     async def handle_consent(self, user_id: UUID, request: ConsentRequest) -> "Memory":
@@ -308,7 +337,7 @@ class MemoryService:
 
 
 async def get_memory_service(
-    session: Annotated[AsyncSession, Depends(get_async_session)],
+    session: Annotated[AsyncSession, Depends(get_db)],
 ) -> "MemoryService":
     """Dependency for getting memory service."""
     return MemoryService(session)

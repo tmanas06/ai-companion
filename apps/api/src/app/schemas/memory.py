@@ -21,7 +21,11 @@ class MemoryUpdate(BaseModel):
     category: Optional[str] = Field(default=None, max_length=100)
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     is_sensitive: Optional[bool] = None
-    consent_status: Optional[str] = Field(default=None, pattern="^(pending|approved|denied|auto_approved)$")
+    consent_status: Optional[str] = Field(
+        default=None,
+        pattern="^(pending|approved|denied|auto_approved)$",
+        description="Deprecated: consent status cannot be modified via generic update. Use POST /memories/{id}/consent.",
+    )
 
 
 class MemoryResponse(BaseModel):

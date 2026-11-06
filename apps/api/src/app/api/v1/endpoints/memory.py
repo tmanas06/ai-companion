@@ -14,10 +14,9 @@ from app.schemas.memory import (
     ConsentResponse,
 )
 from app.services.memory import MemoryService, get_memory_service
-from app.models import User
+from app.models import User, Companion
 
-
-router = APIRouter(prefix="/memories", tags=["memories"])
+router = APIRouter(tags=["memories"])
 
 
 @router.post("", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
@@ -124,6 +123,14 @@ async def search_similar_memories(
     from app.providers.embedding import get_embedding_provider
     from app.core.config import settings
 
+    # Verify companion exists and belongs to current_user upfront
+    companion = await service.session.get(Companion, companion_id)
+    if not companion or companion.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Companion not found",
+        )
+
     provider = get_embedding_provider()
     query_vector = await provider.embed(q)
     cutoff = threshold if threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
@@ -158,10 +165,13 @@ async def update_memory(
     service: MemoryService = Depends(get_memory_service),
 ):
     """Update a memory."""
-    memory = await service.update_memory(current_user.id, memory_id, data)
-    if not memory:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
-    return memory
+    try:
+        memory = await service.update_memory(current_user.id, memory_id, data)
+        if not memory:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        return memory
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.delete("/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
