@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       });
 
     const contentType = response.headers.get('content-type') || '';
-    let data: any = null;
+    let data: unknown = null;
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
@@ -33,8 +33,9 @@ export async function GET(request: NextRequest) {
       data = { detail: text || response.statusText };
     }
     return NextResponse.json(data, { status: response.status });
-  } catch (err: any) {
-    return NextResponse.json({ detail: err.message || 'Failed to fetch avatars' }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch avatars';
+    return NextResponse.json({ detail: message }, { status: 500 });
   }
 }
 
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     });
 
     const contentType = response.headers.get('content-type') || '';
-    let data: any = null;
+    let data: unknown = null;
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
@@ -66,7 +67,8 @@ export async function POST(request: NextRequest) {
       data = { detail: text || response.statusText };
     }
     return NextResponse.json(data, { status: response.status });
-  } catch (err: any) {
-    return NextResponse.json({ detail: err.message || 'Failed to create avatar' }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to create avatar';
+    return NextResponse.json({ detail: message }, { status: 500 });
   }
 }

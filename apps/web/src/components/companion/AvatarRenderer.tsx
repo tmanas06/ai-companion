@@ -1,6 +1,16 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+
+export type CompanionVoiceState =
+  | 'idle'
+  | 'requesting_microphone'
+  | 'listening'
+  | 'processing_speech'
+  | 'generating_response'
+  | 'speaking'
+  | 'interrupted'
+  | 'error';
 
 export interface AvatarLayerConfig {
   type: 'skin' | 'eyes' | 'hair' | 'clothing' | 'accessory' | 'background';
@@ -24,6 +34,9 @@ interface AvatarRendererProps {
   name?: string;
   className?: string;
   size?: number | string;
+  state?: CompanionVoiceState;
+  audioLevel?: number; // Normalized 0.0 to 1.0 from microphone or audio player
+  isSpeaking?: boolean;
 }
 
 export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
@@ -32,19 +45,90 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
   name = 'Companion',
   className = '',
   size = 280,
+  state = 'idle',
+  audioLevel = 0,
+  isSpeaking = false,
 }) => {
-  // If a pre-rendered static preview URL is provided (e.g. /avatars/luna-anime.svg) and no custom layer overrides
+  const [internalMouthOpen, setInternalMouthOpen] = useState(0);
+  const [isBlinking, setIsBlinking] = useState(false);
+
+  const activeSpeaking = isSpeaking || state === 'speaking';
+  const isListening = state === 'listening';
+  const isThinking = state === 'generating_response' || state === 'processing_speech';
+
+  // Natural speaking mouth oscillation driven by audioLevel or rhythm
+  useEffect(() => {
+    if (!activeSpeaking) {
+      setInternalMouthOpen(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      // If audioLevel is passed from Web Audio API, use it, otherwise oscillate naturally
+      if (audioLevel > 0.05) {
+        setInternalMouthOpen(Math.min(18, Math.max(3, audioLevel * 24)));
+      } else {
+        const rand = 4 + Math.random() * 12;
+        setInternalMouthOpen(rand);
+      }
+    }, 110);
+
+    return () => clearInterval(interval);
+  }, [activeSpeaking, audioLevel]);
+
+  // Periodic natural blink cycle in idle and listening states
+  useEffect(() => {
+    const blinkInterval = setInterval(() => {
+      if (Math.random() > 0.35) {
+        setIsBlinking(true);
+        setTimeout(() => setIsBlinking(false), 160);
+      }
+    }, 3800);
+
+    return () => clearInterval(blinkInterval);
+  }, []);
+
+  // Aura and glow classes based on voice state
+  const stateAura = (() => {
+    switch (state) {
+      case 'listening':
+        return 'ring-4 ring-emerald-400/80 shadow-[0_0_40px_rgba(52,211,153,0.35)]';
+      case 'processing_speech':
+      case 'generating_response':
+        return 'ring-4 ring-indigo-500/80 shadow-[0_0_40px_rgba(99,102,241,0.4)] animate-pulse';
+      case 'speaking':
+        return 'ring-4 ring-violet-500/80 shadow-[0_0_45px_rgba(139,92,246,0.45)]';
+      case 'interrupted':
+        return 'ring-4 ring-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.3)]';
+      case 'error':
+        return 'ring-4 ring-rose-500/80 shadow-[0_0_30px_rgba(244,63,94,0.35)]';
+      default:
+        return 'ring-1 ring-slate-800 shadow-2xl';
+    }
+  })();
+
+  // Render static SVG portrait or pre-rendered asset with responsive mouth/aura
   if (previewUrl && (!config || !config.layers || config.layers.length === 0)) {
     return (
       <div
-        className={`relative overflow-hidden rounded-2xl shadow-xl flex items-center justify-center bg-slate-900 ${className}`}
+        className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center bg-slate-900 ${stateAura} ${className}`}
         style={{ width: size, height: size }}
       >
+        {/* Speaking sound ripples */}
+        {activeSpeaking && (
+          <div className="absolute inset-0 rounded-3xl border-2 border-violet-400/40 animate-ping pointer-events-none" />
+        )}
+        {isListening && (
+          <div className="absolute inset-0 rounded-3xl border-2 border-emerald-400/40 animate-ping pointer-events-none" />
+        )}
+
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={previewUrl}
           alt={name}
-          className="w-full h-full object-cover"
+          className={`w-full h-full object-cover transition-transform duration-500 ${
+            activeSpeaking ? 'scale-[1.02]' : isListening ? 'scale-[1.01]' : 'scale-100'
+          }`}
         />
       </div>
     );
@@ -70,9 +154,17 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl shadow-2xl flex items-center justify-center ${className}`}
+      className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center ${stateAura} ${className}`}
       style={{ width: size, height: size }}
     >
+      {/* Sound wave ripple rings for active speaking */}
+      {activeSpeaking && (
+        <div className="absolute inset-0 rounded-3xl border-2 border-violet-400/30 animate-ping pointer-events-none" />
+      )}
+      {isListening && (
+        <div className="absolute inset-0 rounded-3xl border-2 border-emerald-400/30 animate-ping pointer-events-none" />
+      )}
+
       <svg
         viewBox="0 0 300 300"
         width="100%"
@@ -86,7 +178,7 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
             <stop offset="100%" stopColor="#0f172a" />
           </linearGradient>
           <radialGradient id={`glow-${name}`} cx="50%" cy="40%" r="55%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.25" />
+            <stop offset="0%" stopColor="#ffffff" stopOpacity={isThinking ? '0.4' : '0.2'} />
             <stop offset="100%" stopColor={bgColor} stopOpacity="0" />
           </radialGradient>
         </defs>
@@ -125,7 +217,13 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
         <ellipse cx="202" cy="144" rx="6" ry="11" fill={skinColor} filter="brightness(0.92)" />
 
         {/* 6. Eyes */}
-        {eyesLayer?.variant === 'smiling' ? (
+        {isBlinking ? (
+          // Natural blinking line
+          <>
+            <path d="M122 140 Q131 144 140 140" fill="none" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M160 140 Q169 144 178 140" fill="none" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+          </>
+        ) : eyesLayer?.variant === 'smiling' ? (
           <>
             <path d="M122 140 Q131 133 140 140" fill="none" stroke="#0f172a" strokeWidth="3" strokeLinecap="round" />
             <path d="M160 140 Q169 133 178 140" fill="none" stroke="#0f172a" strokeWidth="3" strokeLinecap="round" />
@@ -149,8 +247,24 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
         {/* Nose */}
         <path d="M149 146 L147 156 L153 156" fill="none" stroke="#0f172a" strokeWidth="1.8" strokeLinecap="round" opacity="0.6" />
 
-        {/* Mouth */}
-        <path d="M138 171 Q150 180 162 171" fill="none" stroke="#be123c" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Dynamic Animated Mouth */}
+        {activeSpeaking && internalMouthOpen > 2 ? (
+          <g>
+            {/* Open mouth cavity */}
+            <path
+              d={`M138 171 Q150 ${171 + internalMouthOpen} 162 171 Q150 ${168 - internalMouthOpen * 0.15} 138 171 Z`}
+              fill="#881337"
+              stroke="#be123c"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+            {/* Upper teeth accent */}
+            <rect x="144" y="170" width="12" height="3" rx="1.5" fill="#f8fafc" />
+          </g>
+        ) : (
+          /* Subtle resting / smiling mouth */
+          <path d="M138 171 Q150 179 162 171" fill="none" stroke="#be123c" strokeWidth="2.5" strokeLinecap="round" />
+        )}
 
         {/* 7. Hair (Front) */}
         {hairLayer?.variant === 'anime-spikes' ? (

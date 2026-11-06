@@ -35,7 +35,8 @@ class OllamaProvider(BaseProvider):
         ]
 
     def get_default_model(self) -> str:
-        return "llama3.1:8b"
+        from app.core.config import settings
+        return getattr(settings, "OLLAMA_DEFAULT_MODEL", None) or os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.1:8b")
 
     async def _get_client(self) -> "httpx.AsyncClient":
         if self._client is None:

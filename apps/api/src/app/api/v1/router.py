@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, health, conversation, memory, avatar, companion
+from app.api.v1.endpoints import auth, health, conversation, memory, avatar, companion, voice
 
 api_router = APIRouter()
 
@@ -10,3 +10,4 @@ api_router.include_router(companion.router, prefix="/companions", tags=["compani
 api_router.include_router(conversation.router, prefix="/conversations", tags=["conversations"])
 api_router.include_router(memory.router, prefix="/memories", tags=["memories"])
 api_router.include_router(avatar.router, prefix="/avatars", tags=["avatars"])
+api_router.include_router(voice.router, prefix="/voice", tags=["voice"])

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     });
 
     const contentType = response.headers.get('content-type') || '';
-    let data: any = null;
+    let data: Record<string, unknown> | null = null;
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
@@ -28,12 +28,13 @@ export async function GET(request: NextRequest) {
       data = { detail: text || response.statusText };
     }
 
-    if (data && Array.isArray(data.items) && !data.companions) {
-      data.companions = data.items;
+    if (data && Array.isArray(data['items']) && !data['companions']) {
+      data['companions'] = data['items'];
     }
     return NextResponse.json(data, { status: response.status });
-  } catch (err: any) {
-    return NextResponse.json({ detail: err.message || 'Failed to fetch companions' }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch companions';
+    return NextResponse.json({ detail: message }, { status: 500 });
   }
 }
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     });
 
     const contentType = response.headers.get('content-type') || '';
-    let data: any = null;
+    let data: unknown = null;
     if (contentType.includes('application/json')) {
       data = await response.json();
     } else {
@@ -66,7 +67,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data, { status: response.status });
-  } catch (err: any) {
-    return NextResponse.json({ detail: err.message || 'Failed to create companion' }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to create companion';
+    return NextResponse.json({ detail: message }, { status: 500 });
   }
 }

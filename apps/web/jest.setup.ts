@@ -29,3 +29,109 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
   redirect: jest.fn(),
 }));
+
+// Mock Web Audio and Media Devices for Voice Companion
+class MockAudioContext {
+  createMediaStreamSource() {
+    return {
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    };
+  }
+  createAnalyser() {
+    return {
+      fftSize: 256,
+      frequencyBinCount: 128,
+      getByteFrequencyData: (arr: Uint8Array) => arr.fill(42),
+      connect: jest.fn(),
+      disconnect: jest.fn(),
+    };
+  }
+  close() {
+    return Promise.resolve();
+  }
+}
+
+// @ts-expect-error Mock AudioContext
+global.AudioContext = MockAudioContext;
+// @ts-expect-error Mock webkitAudioContext
+global.webkitAudioContext = MockAudioContext;
+
+class MockMediaRecorder {
+  state = 'inactive';
+  mimeType = 'audio/webm';
+  ondataavailable: ((e: { data: Blob }) => void) | null = null;
+  onstop: (() => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+
+  static isTypeSupported = jest.fn().mockReturnValue(true);
+
+  start() {
+    this.state = 'recording';
+  }
+  stop() {
+    this.state = 'inactive';
+    if (this.ondataavailable) {
+      this.ondataavailable({ data: new Blob(['fake audio'], { type: 'audio/webm' }) });
+    }
+    if (this.onstop) {
+      this.onstop();
+    }
+  }
+}
+
+// @ts-expect-error Mock MediaRecorder
+global.MediaRecorder = MockMediaRecorder;
+
+if (!navigator.mediaDevices) {
+  // @ts-expect-error Mock mediaDevices
+  navigator.mediaDevices = {};
+}
+
+navigator.mediaDevices.getUserMedia = jest.fn().mockResolvedValue({
+  active: true,
+  getTracks: () => [
+    {
+      stop: jest.fn(),
+      enabled: true,
+    },
+  ],
+});
+
+// Mock HTMLMediaElement play/pause
+window.HTMLMediaElement.prototype.play = jest.fn().mockImplementation(function (this: HTMLMediaElement) {
+  setTimeout(() => {
+    if (this.onplay) {
+      this.onplay(new Event('play'));
+    }
+    this.dispatchEvent(new Event('play'));
+  }, 0);
+  setTimeout(() => {
+    if (this.onended) {
+      this.onended(new Event('ended'));
+    }
+    this.dispatchEvent(new Event('ended'));
+  }, 300);
+  return Promise.resolve();
+});
+window.HTMLMediaElement.prototype.pause = jest.fn().mockImplementation(function (this: HTMLMediaElement) {
+  if (this.onpause) {
+    this.onpause(new Event('pause'));
+  }
+  this.dispatchEvent(new Event('pause'));
+});
+
+// Mock SpeechSynthesis
+const mockSpeechSynthesis = {
+  speak: jest.fn((utterance: SpeechSynthesisUtterance) => {
+    setTimeout(() => {
+      utterance.onend?.(new Event('end') as unknown as SpeechSynthesisEvent);
+    }, 10);
+  }),
+  cancel: jest.fn(),
+  getVoices: jest.fn().mockReturnValue([]),
+};
+Object.defineProperty(window, 'speechSynthesis', {
+  value: mockSpeechSynthesis,
+  writable: true,
+});
