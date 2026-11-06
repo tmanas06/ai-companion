@@ -60,8 +60,10 @@ export const VISEME_APERTURE_MAP: Record<VisemeType, number> = {
   H: 0.45,
 };
 
+import { Avatar3DConfig } from '@ai-companion/shared';
+
 export interface AvatarRendererProps {
-  config?: AvatarConfig;
+  config?: AvatarConfig | Avatar3DConfig;
   previewUrl?: string | null;
   name?: string;
   className?: string;

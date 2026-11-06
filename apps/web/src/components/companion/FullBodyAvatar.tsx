@@ -17,6 +17,7 @@ import {
 import { VideoAvatarRenderer } from './video/VideoAvatarRenderer';
 import { AvatarEmotion } from '@/lib/avatar-video-manifest';
 import { inferCompanionGender } from '@/lib/companion-presets';
+import { Avatar3DConfig } from '@ai-companion/shared';
 
 // Dynamically lazy-load the Three.js Canvas scene without SSR
 const Dynamic3DScene = dynamic(
@@ -89,6 +90,7 @@ export interface FullBodyAvatarProps extends AvatarRendererProps {
   initialMode?: AvatarDisplayMode;
   currentEmotion?: AvatarEmotion;
   emotionIntensity?: number;
+  sadtalkerVideoUrl?: string | null;
 }
 
 const ARIA_PHOTOREALISTIC_MODEL = '/models/aria_photorealistic.glb';
@@ -98,6 +100,7 @@ const DEFAULT_LEGACY_MODEL = '/models/avatar.glb';
 export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   modelUrl: explicitModelUrl,
   animationsUrl = '/models/animations.glb',
+  config,
   state = 'idle',
   audioLevel = 0,
   isSpeaking = false,
@@ -110,24 +113,34 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   initialMode,
   currentEmotion = 'neutral',
   emotionIntensity = 0.5,
+  sadtalkerVideoUrl,
   className = '',
   ...props
 }) => {
   const [hasWebGL, setHasWebGL] = useState<boolean>(() => isWebGLSupported());
 
-  // Determine companion identity: Aria defaults to photorealistic video avatar!
+  // Check if active 3D customization exists
+  const config3D = config && (config as Avatar3DConfig).version === 2 ? (config as Avatar3DConfig) : null;
+
+  // Determine appropriate 3D character model based on config.baseModelId or fallback to character inference
+  const isMaleCharacter = inferCompanionGender({ name, personality: null }) === 'male';
+  const isMarcusModel =
+    config3D?.baseModelId === 'marcus_photorealistic' ||
+    config3D?.baseModelId === 'human_male_v1' ||
+    (!config3D && isMaleCharacter);
+  const targetCharacterModel = isMarcusModel
+    ? MARCUS_PHOTOREALISTIC_MODEL
+    : ARIA_PHOTOREALISTIC_MODEL;
+
+  // Determine companion identity: Aria defaults to photorealistic video avatar when no 3D studio config is set
   const isAria = name.toLowerCase().includes('aria');
   const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
     if (initialMode) return initialMode;
     if (!isWebGLSupported()) return '2d';
+    // If user saved a customized 3D avatar from Avatar Studio, showcase their 3D companion
+    if (config3D) return '3d';
     return isAria ? 'video' : defaultTo3D ? '3d' : '2d';
   });
-
-  // Determine appropriate 3D character model
-  const isMaleCharacter = inferCompanionGender({ name, personality: null }) === 'male';
-  const targetCharacterModel = isMaleCharacter
-    ? MARCUS_PHOTOREALISTIC_MODEL
-    : ARIA_PHOTOREALISTIC_MODEL;
 
   const [resolvedModelUrl, setResolvedModelUrl] = useState<string>(
     () => explicitModelUrl || targetCharacterModel
@@ -140,16 +153,19 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   const [fps, setFps] = useState<number | null>(null);
   const [reactionFeedback, setReactionFeedback] = useState<string | null>(null);
 
-  // Sync display mode when companion identity resolves or changes
+  // Sync display mode when companion identity or active 3D avatar configuration changes
   useEffect(() => {
     if (initialMode) {
       setDisplayMode(initialMode);
+    } else if (config3D) {
+      // Prioritize the customized 3D avatar when WebGL is available
+      setDisplayMode(isWebGLSupported() ? '3d' : '2d');
     } else if (name.toLowerCase().includes('aria')) {
       setDisplayMode('video');
     } else {
       setDisplayMode(defaultTo3D ? '3d' : '2d');
     }
-  }, [name, initialMode, defaultTo3D]);
+  }, [name, initialMode, defaultTo3D, config3D]);
 
   // Check WebGL availability and probe for target photorealistic asset
   useEffect(() => {
@@ -263,6 +279,7 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             emotionIntensity={emotionIntensity}
             audioLevel={audioLevel}
             isSpeaking={isSpeaking}
+            sadtalkerVideoUrl={sadtalkerVideoUrl}
             onError={handleVideoError}
           />
         </div>
@@ -274,6 +291,7 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             fallback={
               <div className="relative flex flex-col items-center justify-center p-6">
                 <AvatarRenderer
+                  config={config}
                   previewUrl={previewUrl}
                   name={name}
                   state={state}
@@ -290,6 +308,7 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             <Dynamic3DScene
               modelUrl={resolvedModelUrl}
               animationsUrl={animationsUrl}
+              config={config}
               state={state}
               audioLevel={audioLevel}
               isSpeaking={isSpeaking}

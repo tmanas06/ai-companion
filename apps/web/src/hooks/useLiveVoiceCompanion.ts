@@ -113,6 +113,57 @@ export function useLiveVoiceCompanion({
   );
   const [currentEmotion, setCurrentEmotion] = useState<AvatarEmotion>('neutral');
   const [emotionIntensity, setEmotionIntensity] = useState<number>(0.5);
+  const [sadtalkerVideoUrl, setSadtalkerVideoUrl] = useState<string | null>(null);
+
+  const activeSadTalkerJobIdRef = useRef<string | null>(null);
+  const sadTalkerPollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const cancelActiveSadTalkerJob = useCallback(() => {
+    if (sadTalkerPollTimerRef.current) {
+      clearTimeout(sadTalkerPollTimerRef.current);
+      sadTalkerPollTimerRef.current = null;
+    }
+    const activeJobId = activeSadTalkerJobIdRef.current;
+    if (activeJobId) {
+      activeSadTalkerJobIdRef.current = null;
+      fetch(`/api/sadtalker/jobs/${activeJobId}`, { method: 'DELETE' }).catch(() => {});
+    }
+  }, []);
+
+  const handleSadTalkerJob = useCallback(
+    (jobId: string, sessionId: number) => {
+      cancelActiveSadTalkerJob();
+      activeSadTalkerJobIdRef.current = jobId;
+
+      const poll = async () => {
+        if (activeSadTalkerJobIdRef.current !== jobId || sessionId !== activeSessionIdRef.current) {
+          return;
+        }
+        try {
+          const res = await fetch(`/api/sadtalker/jobs/${jobId}`);
+          if (!res.ok) return;
+          const info = await res.json();
+          if (activeSadTalkerJobIdRef.current !== jobId || sessionId !== activeSessionIdRef.current) {
+            return;
+          }
+          if (info.status === 'completed' && info.video_url) {
+            setSadtalkerVideoUrl(info.video_url);
+            activeSadTalkerJobIdRef.current = null;
+          } else if (info.status === 'failed' || info.status === 'cancelled') {
+            activeSadTalkerJobIdRef.current = null;
+          } else {
+            // Check status periodically while job is rendering in background
+            sadTalkerPollTimerRef.current = setTimeout(poll, 3000);
+          }
+        } catch {
+          // Polling will gracefully cease on network failure
+        }
+      };
+
+      sadTalkerPollTimerRef.current = setTimeout(poll, 2500);
+    },
+    [cancelActiveSadTalkerJob]
+  );
 
   const [handsFree, setHandsFreeState] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -505,12 +556,16 @@ export function useLiveVoiceCompanion({
     }
     cleanupMicrophone();
 
-    // 6. Explicit state transition
+    // 6. Cancel active SadTalker inference job
+    cancelActiveSadTalkerJob();
+    setSadtalkerVideoUrl(null);
+
+    // 7. Explicit state transition
     setState('interrupted');
     setTimeout(() => {
       setState((prev) => (prev === 'interrupted' ? 'idle' : prev));
     }, 700);
-  }, [cleanupMicrophone, stopPlaybackMonitoring]);
+  }, [cleanupMicrophone, stopPlaybackMonitoring, cancelActiveSadTalkerJob]);
 
   // Play assistant audio response with amplitude monitoring
   const playAssistantAudio = useCallback(
@@ -783,6 +838,11 @@ export function useLiveVoiceCompanion({
         setCurrentEmotion(detectedEmotion);
         setEmotionIntensity(typeof data.emotion_intensity === 'number' ? data.emotion_intensity : 0.5);
 
+        // Check for background SadTalker lip-sync video generation job
+        if (data.sadtalker_job_id) {
+          handleSadTalkerJob(data.sadtalker_job_id, currentSessionId);
+        }
+
         // Play companion response:
         // When backend provides audio_base64 and user hasn't explicitly forced browser-only,
         // play the high-fidelity neural audio
@@ -835,7 +895,7 @@ export function useLiveVoiceCompanion({
         if (onError) onError(displayMsg);
       }
     },
-    [companionId, conversationId, onConversationCreated, onError, playAssistantAudio, playBrowserSpeech, voiceSettings]
+    [companionId, conversationId, onConversationCreated, onError, playAssistantAudio, playBrowserSpeech, voiceSettings, handleSadTalkerJob]
   );
 
   // Start microphone capture
@@ -1126,6 +1186,11 @@ export function useLiveVoiceCompanion({
         setCurrentEmotion(detectedEmotion);
         setEmotionIntensity(typeof data.emotion_intensity === 'number' ? data.emotion_intensity : 0.8);
 
+        // Check for background SadTalker lip-sync video generation job
+        if (data.sadtalker_job_id) {
+          handleSadTalkerJob(data.sadtalker_job_id, currentSessionId);
+        }
+
         if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
           playAssistantAudio(data.audio_base64, greetingSpeech, currentSessionId, data.audio_format || 'audio/mpeg');
         } else {
@@ -1149,7 +1214,7 @@ export function useLiveVoiceCompanion({
         playBrowserSpeech(fallbackText, currentSessionId);
       }
     },
-    [companionId, conversationId, companionName, onConversationCreated, playAssistantAudio, playBrowserSpeech, voiceSettings]
+    [companionId, conversationId, companionName, onConversationCreated, playAssistantAudio, playBrowserSpeech, voiceSettings, handleSadTalkerJob]
   );
 
   // Resume/unblock audio when browser autoplay policy requires user interaction
@@ -1225,9 +1290,10 @@ export function useLiveVoiceCompanion({
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
+      cancelActiveSadTalkerJob();
       cleanupMicrophone();
     };
-  }, [cleanupMicrophone, stopPlaybackMonitoring]);
+  }, [cleanupMicrophone, stopPlaybackMonitoring, cancelActiveSadTalkerJob]);
 
   return {
     state,
@@ -1252,5 +1318,6 @@ export function useLiveVoiceCompanion({
     isUserSpeaking,
     currentEmotion,
     emotionIntensity,
+    sadtalkerVideoUrl,
   };
 }

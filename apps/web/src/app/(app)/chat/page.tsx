@@ -8,6 +8,7 @@ import { CompanionPersonalityConfig, inferCompanionGender } from '@/lib/companio
 import { FullBodyAvatar } from '@/components/companion/FullBodyAvatar';
 import { useLiveVoiceCompanion } from '@/hooks/useLiveVoiceCompanion';
 import { VoiceSettingsModal } from '@/components/companion/VoiceSettingsModal';
+import { Avatar3DConfig, migrateAvatarConfig } from '@ai-companion/shared';
 
 interface Companion {
   id: string;
@@ -37,6 +38,8 @@ function LiveCompanionStage() {
   const { user, isLoading: authLoading } = useAuth();
   const [companions, setCompanions] = useState<Companion[]>([]);
   const [selectedCompanion, setSelectedCompanion] = useState<Companion | null>(null);
+  const [activeAvatarConfig, setActiveAvatarConfig] = useState<Avatar3DConfig | null>(null);
+  const [activeAvatarName, setActiveAvatarName] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showTextFallback, setShowTextFallback] = useState(false);
@@ -72,6 +75,7 @@ function LiveCompanionStage() {
     isUserSpeaking,
     currentEmotion,
     emotionIntensity,
+    sadtalkerVideoUrl,
   } = useLiveVoiceCompanion({
     companionId: selectedCompanion?.id,
     conversationId: activeConversationId,
@@ -124,6 +128,54 @@ function LiveCompanionStage() {
       loadCompanions();
     }
   }, [user, loadCompanions]);
+
+  // 2b. Load authenticated user's active 3D avatar configuration
+  const loadActiveAvatar = useCallback(async () => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch('/api/avatars/active', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.config) {
+          const migrated = migrateAvatarConfig(data.config);
+          setActiveAvatarConfig(migrated);
+          if (data.name) {
+            setActiveAvatarName(data.name);
+          }
+        }
+      } else if (res.status === 404) {
+        // No custom avatar saved yet - gracefully fallback to default companion
+        setActiveAvatarConfig(null);
+      }
+    } catch (err) {
+      console.warn('[Chat] Failed to load active avatar configuration:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadActiveAvatar();
+    }
+  }, [user, loadActiveAvatar]);
+
+  // Refresh active avatar when window regains focus (e.g. user returned from /studio)
+  useEffect(() => {
+    function handleFocusOrVisibility() {
+      if (document.visibilityState === 'visible' && user) {
+        loadActiveAvatar();
+      }
+    }
+
+    window.addEventListener('focus', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+    };
+  }, [user, loadActiveAvatar]);
 
   // 3. Load or initiate conversation for selected companion
   useEffect(() => {
@@ -372,6 +424,17 @@ function LiveCompanionStage() {
             </svg>
           </button>
 
+          {/* Avatar Studio 3D Customizer Button */}
+          <Link
+            href="/studio"
+            className="p-2.5 rounded-xl text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 transition shadow-sm"
+            title="Aria Avatar Studio (3D Character Customizer)"
+          >
+            <svg className="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </Link>
+
           {/* Customize Companion Button */}
           {selectedCompanion && (
             <Link
@@ -459,14 +522,15 @@ function LiveCompanionStage() {
         {/* Photorealistic Video / 3D Avatar Canvas Stage (Full-bleed immersion behind floating UI) */}
         <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
           <FullBodyAvatar
-            config={personality?.avatar_config}
+            config={activeAvatarConfig || personality?.avatar_config}
             previewUrl={personality?.avatar_preview_url}
-            name={selectedCompanion?.name || 'Aria'}
+            name={activeAvatarName || selectedCompanion?.name || 'Aria'}
             state={state}
             audioLevel={audioLevel}
             isSpeaking={state === 'speaking'}
             currentEmotion={currentEmotion}
             emotionIntensity={emotionIntensity}
+            sadtalkerVideoUrl={sadtalkerVideoUrl}
             className="w-full h-full"
           />
         </div>

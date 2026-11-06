@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import {
+  AvatarConfig,
   CompanionVoiceState,
   VisemeCue,
 } from '../AvatarRenderer';
@@ -14,10 +15,12 @@ import {
   Companion3DAnimation,
   ModelBoundingMetrics,
 } from './animation-mappings';
+import { Avatar3DConfig, migrateAvatarConfig } from '@ai-companion/shared';
 
 export interface FullBodyAvatarModelProps {
   modelUrl?: string;
   animationsUrl?: string;
+  config?: AvatarConfig | Avatar3DConfig;
   state?: CompanionVoiceState;
   audioLevel?: number;
   isSpeaking?: boolean;
@@ -28,9 +31,17 @@ export interface FullBodyAvatarModelProps {
   onTapReaction?: (reactionType: 'head' | 'body') => void;
 }
 
+const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function safeColor(hex: string | undefined, fallback: string): string {
+  if (hex && HEX_COLOR_REGEX.test(hex)) return hex;
+  return fallback;
+}
+
 export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
   modelUrl = '/models/aria_photorealistic.glb?v=5',
   animationsUrl = '/models/animations.glb',
+  config,
   state = 'idle',
   audioLevel = 0,
   isSpeaking = false,
@@ -54,6 +65,15 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
   // Viseme smoothing targets
   const currentVisemeTargetRef = useRef<string>('viseme_sil');
   const currentVisemeIntensityRef = useRef<number>(0);
+
+  // Parse and migrate active 3D avatar configuration
+  const parsed3DConfig = React.useMemo<Avatar3DConfig | null>(() => {
+    if (!config) return null;
+    if ((config as Avatar3DConfig).version === 2) {
+      return migrateAvatarConfig(config);
+    }
+    return null;
+  }, [config]);
 
   // Load avatar and animation GLBs
   const avatarGLTF = useGLTF(modelUrl);
@@ -101,7 +121,7 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
     };
   }, [avatarGLTF.scene, avatarGLTF.animations, animationsGLTF.animations]);
 
-  // Compute model bounding box and calibrate realistic PBR material properties
+  // Compute model bounding box and calibrate realistic PBR material properties with customization
   useEffect(() => {
     if (!avatarGLTF.scene) return;
 
@@ -132,7 +152,16 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
+        const meshName = (mesh.name || '').toLowerCase();
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+        // Hairstyle visibility toggle according to supported assetId
+        if (meshName.includes('ponytail') || meshName.includes('short02') || meshName.includes('hair')) {
+          if (parsed3DConfig) {
+            mesh.visible = parsed3DConfig.hair.assetId !== 'none';
+          }
+        }
+
         materials.forEach((m) => {
           if (!m) return;
           const mat = m as THREE.MeshStandardMaterial;
@@ -152,8 +181,13 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             mat.alphaTest = 0.5;
             mat.depthWrite = true;
             mat.side = THREE.DoubleSide;
-            mat.roughness = 0.54;
+            mat.roughness = parsed3DConfig?.hair.roughness ?? 0.54;
             mat.metalness = 0.02;
+
+            // Apply hair color tint if customized
+            if (parsed3DConfig && (name.includes('ponytail') || name.includes('short02') || name.includes('hair'))) {
+              mat.color.set(safeColor(parsed3DConfig.hair.color, '#2C1B14'));
+            }
           } else if (
             name.includes('skin') ||
             name.includes('head') ||
@@ -162,7 +196,7 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             name.includes('base')
           ) {
             // Natural human skin: 0.52 roughness with subtle micro-pore scatter
-            mat.roughness = 0.52;
+            mat.roughness = parsed3DConfig?.materials.skinRoughness ?? 0.52;
             mat.metalness = 0.0;
             if (mat.normalMap) {
               mat.normalScale = new THREE.Vector2(0.22, 0.22);
@@ -174,15 +208,25 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
               (mat as THREE.MeshPhysicalMaterial).sheenRoughness = 0.5;
               (mat as THREE.MeshPhysicalMaterial).sheenColor = new THREE.Color('#ffdfd3');
             }
+
+            // Apply skin tone tint if customized
+            if (parsed3DConfig && (mat.name === 'Human.body' || meshName === 'base' || meshName === 'human' || name.includes('skin'))) {
+              mat.color.set(safeColor(parsed3DConfig.materials.skinTone, '#E8B590'));
+            }
           } else if (name.includes('eye') || name.includes('poly')) {
             // Crystal-clear moist cornea with sharp specular catchlight
-            mat.roughness = 0.04;
+            mat.roughness = parsed3DConfig?.materials.eyeRoughness ?? 0.04;
             mat.metalness = 0.0;
             mat.transparent = false;
             mat.opacity = 1.0;
             mat.depthWrite = true;
+
+            // Apply eye color tint if customized
+            if (parsed3DConfig && (mat.name === 'Human.low-poly' || name.includes('eye'))) {
+              mat.color.set(safeColor(parsed3DConfig.materials.eyeColor, '#3B2219'));
+            }
           } else if (name.includes('teeth')) {
-            mat.roughness = 0.16;
+            mat.roughness = parsed3DConfig?.materials.teethRoughness ?? 0.16;
             mat.metalness = 0.0;
           } else if (
             name.includes('outfit') ||
@@ -197,6 +241,11 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             // Matte tailored fabric finish
             mat.roughness = 0.85;
             mat.metalness = 0.0;
+
+            // Apply outfit color tint if customized
+            if (parsed3DConfig && parsed3DConfig.clothing.topColor) {
+              mat.color.set(safeColor(parsed3DConfig.clothing.topColor, '#232938'));
+            }
           } else if (name.includes('shoes')) {
             mat.roughness = 0.65;
             mat.metalness = 0.0;
@@ -228,7 +277,7 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
         }
       });
     };
-  }, [avatarGLTF.scene, onMetricsLoaded]);
+  }, [avatarGLTF.scene, onMetricsLoaded, parsed3DConfig]);
 
   // 2. Rotate talking animation variants during conversational turns
   useEffect(() => {
@@ -371,6 +420,11 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
       currentVisemeIntensityRef.current += (0 - currentVisemeIntensityRef.current) * 0.55;
     }
 
+    // Resting jaw base offset from facial customization (chin length)
+    const baseJaw = parsed3DConfig
+      ? Math.max(0, ((parsed3DConfig.face.chinLength ?? 0.5) - 0.5) * 0.15)
+      : 0;
+
     // C. Apply morph targets to Head, Teeth, and Eyes
     avatarGLTF.scene.traverse((child) => {
       if ((child as THREE.SkinnedMesh).isSkinnedMesh) {
@@ -379,7 +433,66 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
         const influences = mesh.morphTargetInfluences;
 
         if (dict && influences && influences.length > 0) {
-          // 1. Blinking morph targets
+          // 1. Apply Facial Customization Morphs to Base Face Mesh
+          if ((mesh.name === 'base' || mesh.name === 'Human' || dict['jawForward'] !== undefined) && parsed3DConfig) {
+            // Jaw & Chin Projection
+            const jawFwd = dict['jawForward'];
+            if (jawFwd !== undefined && influences[jawFwd] !== undefined) {
+              influences[jawFwd] = parsed3DConfig.face.jawWidth * 0.7;
+            }
+
+            // Cheekbone Height & Fullness
+            const cheekSquintL = dict['cheekSquintLeft'];
+            const cheekSquintR = dict['cheekSquintRight'];
+            if (cheekSquintL !== undefined && cheekSquintR !== undefined) {
+              influences[cheekSquintL] = parsed3DConfig.face.cheekboneHeight * 0.65;
+              influences[cheekSquintR] = parsed3DConfig.face.cheekboneHeight * 0.65;
+            }
+
+            const cheekPuff = dict['cheekPuff'];
+            if (cheekPuff !== undefined && influences[cheekPuff] !== undefined) {
+              influences[cheekPuff] = (parsed3DConfig.face.cheekboneFullness ?? 0.5) * 0.6;
+            }
+
+            // Eyes Size & Aperture
+            const eyeWideL = dict['eyeWideLeft'];
+            const eyeWideR = dict['eyeWideRight'];
+            if (eyeWideL !== undefined && eyeWideR !== undefined) {
+              influences[eyeWideL] = parsed3DConfig.face.eyeSize * 0.55;
+              influences[eyeWideR] = parsed3DConfig.face.eyeSize * 0.55;
+            }
+
+            // Nose Bridge Width
+            const noseSneerL = dict['noseSneerLeft'];
+            const noseSneerR = dict['noseSneerRight'];
+            if (noseSneerL !== undefined && noseSneerR !== undefined) {
+              influences[noseSneerL] = parsed3DConfig.face.noseBridgeWidth * 0.45;
+              influences[noseSneerR] = parsed3DConfig.face.noseBridgeWidth * 0.45;
+            }
+
+            // Lip Fullness & Mouth Width
+            const mouthRollUp = dict['mouthRollUpper'];
+            const mouthRollLo = dict['mouthRollLower'];
+            if (mouthRollUp !== undefined && mouthRollLo !== undefined) {
+              influences[mouthRollUp] = parsed3DConfig.face.lipFullnessUpper * 0.6;
+              influences[mouthRollLo] = parsed3DConfig.face.lipFullnessLower * 0.6;
+            }
+
+            const mouthStretchL = dict['mouthStretchLeft'];
+            const mouthStretchR = dict['mouthStretchRight'];
+            if (mouthStretchL !== undefined && mouthStretchR !== undefined) {
+              influences[mouthStretchL] = parsed3DConfig.face.mouthWidth * 0.5;
+              influences[mouthStretchR] = parsed3DConfig.face.mouthWidth * 0.5;
+            }
+
+            // Demographic contour morphs (chin length & jaw taper)
+            const macroCau = dict['$md-$ca-$fe-$yn'];
+            if (macroCau !== undefined && influences[macroCau] !== undefined) {
+              influences[macroCau] = parsed3DConfig.face.chinLength * 0.5;
+            }
+          }
+
+          // 2. Blinking morph targets (operates independently over eyeWide)
           const blinkIdxL = dict['eyeBlinkLeft'];
           const blinkIdxR = dict['eyeBlinkRight'];
           if (
@@ -393,16 +506,24 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             influences[blinkIdxR] += (targetBlink - influences[blinkIdxR]!) * 0.45;
           }
 
-          // 2. Viseme and Speech Morph Targets
+          // 3. Deterministic Viseme & Speech Morph Targets
+          // Customization never overwrites speech visemes permanently,
+          // and speech visemes smoothly decay back to user's customized resting shape (baseJaw).
           const activeViseme = currentVisemeTargetRef.current;
           const activeIntensity = currentVisemeIntensityRef.current;
 
-          // Decay all visemes toward 0
           for (const key in dict) {
             if (key.startsWith('viseme_') || key === 'mouthOpen' || key === 'jawOpen') {
               const idx = dict[key];
               if (idx !== undefined && influences[idx] !== undefined) {
-                if (key === activeViseme && activeSpeaking) {
+                if (key === 'jawOpen') {
+                  // Additive combination: speech aperture atop customized base resting jaw
+                  const targetJaw = (key === activeViseme && activeSpeaking)
+                    ? Math.min(0.52, baseJaw + activeIntensity)
+                    : baseJaw;
+                  const rate = activeSpeaking ? 0.45 : 0.55;
+                  influences[idx] += (targetJaw - influences[idx]!) * rate;
+                } else if (key === activeViseme && activeSpeaking) {
                   influences[idx] += (activeIntensity - influences[idx]!) * 0.45;
                 } else {
                   // Rapid smooth return to neutral mouth
@@ -412,7 +533,7 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             }
           }
 
-          // 3. Subtle Warm Smile Morph Target (decoupled from wide vowels to prevent distortion)
+          // 4. Subtle Warm Smile Morph Target (decoupled from wide vowels to prevent distortion)
           const smileLeft = dict['mouthSmileLeft'];
           const smileRight = dict['mouthSmileRight'];
           if (
@@ -426,11 +547,26 @@ export const FullBodyAvatarModel: React.FC<FullBodyAvatarModelProps> = ({
             influences[smileLeft] += (smileTarget - influences[smileLeft]!) * 0.15;
             influences[smileRight] += (smileTarget - influences[smileRight]!) * 0.15;
           }
+
+          // 5. Teeth mouth aperture during speech
+          if (mesh.name.toLowerCase().includes('teeth')) {
+            const teethJaw = dict['jawOpen'];
+            if (teethJaw !== undefined && influences[teethJaw] !== undefined) {
+              const teethTarget = activeSpeaking ? activeIntensity * 0.35 : 0;
+              influences[teethJaw] += (teethTarget - influences[teethJaw]!) * 0.45;
+            }
+          }
         }
       }
     });
 
-    // D. Subtle Organic Spine Breathing Motion
+    // D. Body scaling (height) with anatomical clamping
+    if (groupRef.current && parsed3DConfig?.body?.height) {
+      const clampedH = THREE.MathUtils.clamp(parsed3DConfig.body.height, 0.85, 1.15);
+      groupRef.current.scale.set(clampedH, clampedH, clampedH);
+    }
+
+    // E. Subtle Organic Spine Breathing Motion
     if (!reducedMotion && groupRef.current) {
       const time = performance.now() * 0.0018;
       // Very gentle breathing sway (0.012 rad) to avoid whole-body scale distortion

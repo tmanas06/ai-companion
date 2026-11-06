@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks, Depends
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models import Companion, Conversation
 from app.providers.stt import BaseSpeechToTextProvider, get_stt_provider
@@ -134,6 +135,23 @@ class VoiceService:
         # 6. Analyze conversational emotion for photorealistic video avatar expression
         emotion, emotion_intensity = analyze_conversational_emotion(transcript, assistant_msg.content)
 
+        # 7. Optionally trigger background SadTalker lip-sync video generation if enabled
+        sadtalker_job_id: Optional[str] = None
+        if settings.SADTALKER_ENABLED and audio_data:
+            try:
+                from app.services.sadtalker import get_sadtalker_service
+                sadtalker_svc = get_sadtalker_service()
+                if sadtalker_svc.get_service_status().available:
+                    job = await sadtalker_svc.submit_job(
+                        audio_bytes=audio_data,
+                        portrait_id=companion.name.lower(),
+                        emotion=emotion,
+                    )
+                    sadtalker_job_id = job.job_id
+            except Exception:
+                # Non-blocking: continue seamlessly with existing video loops
+                pass
+
         return VoiceTurnResponse(
             conversation_id=conv_res.id,
             user_message_id=user_msg.id,
@@ -148,7 +166,9 @@ class VoiceService:
             model=assistant_msg.model or "ollama",
             emotion=emotion,
             emotion_intensity=emotion_intensity,
+            sadtalker_job_id=sadtalker_job_id,
         )
+
 
     async def execute_greeting(
         self,
@@ -245,6 +265,21 @@ class VoiceService:
         provider_type = getattr(self.tts_provider, "provider_type", "mock")
         audio_format = "audio/mpeg" if provider_type == "edge-tts" else "audio/wav"
 
+        sadtalker_job_id: Optional[str] = None
+        if settings.SADTALKER_ENABLED and audio_data:
+            try:
+                from app.services.sadtalker import get_sadtalker_service
+                sadtalker_svc = get_sadtalker_service()
+                if sadtalker_svc.get_service_status().available:
+                    job = await sadtalker_svc.submit_job(
+                        audio_bytes=audio_data,
+                        portrait_id=companion.name.lower(),
+                        emotion="happy",
+                    )
+                    sadtalker_job_id = job.job_id
+            except Exception:
+                pass
+
         return VoiceTurnResponse(
             conversation_id=conv.id,
             user_message_id=None,
@@ -259,7 +294,9 @@ class VoiceService:
             model="companion-greeting",
             emotion="happy",
             emotion_intensity=0.8,
+            sadtalker_job_id=sadtalker_job_id,
         )
+
 
 
 

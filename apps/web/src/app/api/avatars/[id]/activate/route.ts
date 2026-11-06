@@ -8,7 +8,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const accessToken = request.cookies.get('access_token')?.value;
+  const authHeader = request.headers.get('authorization');
+  const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const accessToken = request.cookies.get('access_token')?.value || tokenFromHeader;
   
   if (!accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
@@ -17,7 +19,7 @@ export async function POST(
   const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars/${id}/activate`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,
+      'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
   });

@@ -8,22 +8,38 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const accessToken = request.cookies.get('access_token')?.value;
+  const authHeader = request.headers.get('authorization');
+  const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const accessToken = request.cookies.get('access_token')?.value || tokenFromHeader;
   
   if (!accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars/${id}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,
-      'Content-Type': 'application/json',
-    },
-  });
+  try {
+    const apiBase = process.env['API_BASE_URL'] || 'http://localhost:8000';
+    const response = await fetch(`${apiBase}/api/v1/avatars/${id}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
 
-  const data = await response.json();
-  return NextResponse.json(data, { status: response.status });
+    const contentType = response.headers.get('content-type') || '';
+    let data: unknown = null;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      data = { detail: text || response.statusText };
+    }
+    return NextResponse.json(data, { status: response.status });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch avatar';
+    return NextResponse.json({ detail: message }, { status: 500 });
+  }
 }
 
 export async function PATCH(
@@ -31,24 +47,39 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const accessToken = request.cookies.get('access_token')?.value;
-  const body = await request.json();
+  const authHeader = request.headers.get('authorization');
+  const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const accessToken = request.cookies.get('access_token')?.value || tokenFromHeader;
   
   if (!accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars/${id}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${request.cookies.get('access_token')?.value}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const body = await request.json();
+    const apiBase = process.env['API_BASE_URL'] || 'http://localhost:8000';
+    const response = await fetch(`${apiBase}/api/v1/avatars/${id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
 
-  const data = await response.json();
-  return NextResponse.json(data, { status: response.status });
+    const contentType = response.headers.get('content-type') || '';
+    let data: unknown = null;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      data = { detail: text || response.statusText };
+    }
+    return NextResponse.json(data, { status: response.status });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to update avatar';
+    return NextResponse.json({ detail: message }, { status: 500 });
+  }
 }
 
 export async function DELETE(
@@ -56,24 +87,39 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const accessToken = request.cookies.get('access_token')?.value;
+  const authHeader = request.headers.get('authorization');
+  const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const accessToken = request.cookies.get('access_token')?.value || tokenFromHeader;
   
   if (!accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
-  const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/avatars/${id}`, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
+  try {
+    const apiBase = process.env['API_BASE_URL'] || 'http://localhost:8000';
+    const response = await fetch(`${apiBase}/api/v1/avatars/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-  if (response.status === 204) {
-    return new NextResponse(null, { status: 204 });
+    if (response.status === 204) {
+      return new NextResponse(null, { status: 204 });
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    let data: unknown = null;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      data = { detail: text || response.statusText };
+    }
+    return NextResponse.json(data, { status: response.status });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to delete avatar';
+    return NextResponse.json({ detail: message }, { status: 500 });
   }
-
-  const data = await response.json();
-  return NextResponse.json(data, { status: response.status });
 }

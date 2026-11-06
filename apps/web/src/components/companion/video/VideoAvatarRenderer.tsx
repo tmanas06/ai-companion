@@ -20,7 +20,9 @@ export interface VideoAvatarRendererProps {
   className?: string;
   onError?: (err: Error) => void;
   onStateTransition?: (from: AvatarInteractionState, to: AvatarInteractionState) => void;
+  sadtalkerVideoUrl?: string | null;
 }
+
 
 interface VideoLayerState {
   src: string;
@@ -55,6 +57,9 @@ function mapVoiceStateToInteraction(state: CompanionVoiceState): AvatarInteracti
  * Determine optimal container video format (H.264 MP4 vs VP9 WebM) based on browser codec support.
  */
 function getPlayableVideoPath(clip: VideoAssetEntry): string {
+  if (clip.path.startsWith('/api') || clip.path.startsWith('http') || clip.path.startsWith('blob:')) {
+    return clip.path;
+  }
   if (typeof document !== 'undefined') {
     try {
       const testVideo = document.createElement('video');
@@ -77,7 +82,9 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
   className = '',
   onError,
   onStateTransition,
+  sadtalkerVideoUrl,
 }) => {
+
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefA = useRef<HTMLVideoElement>(null);
   const videoRefB = useRef<HTMLVideoElement>(null);
@@ -200,6 +207,26 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
    * Monitor voice state and emotion changes to select matching video clip.
    */
   useEffect(() => {
+    // If sadtalkerVideoUrl is provided and we are in speaking state, prefer the generated SadTalker video
+    if (sadtalkerVideoUrl && targetInteractionState === 'speaking') {
+      const sadtalkerClip: VideoAssetEntry = {
+        id: `sadtalker_${sadtalkerVideoUrl}`,
+        state: 'speaking',
+        emotion: currentEmotion,
+        path: sadtalkerVideoUrl,
+        duration: 0,
+        isLoopable: false,
+        hasAudio: true,
+        transitionBehavior: 'crossfade',
+        resolution: { width: 512, height: 512 },
+        aspectRatio: '1:1',
+        source: 'local_sadtalker_inference',
+        license: 'CC-BY-NC-4.0',
+      };
+      transitionToClip(sadtalkerClip);
+      return;
+    }
+
     const targetEmotion = currentEmotion;
     let targetState = targetInteractionState;
 
@@ -216,7 +243,7 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
       const nextClip = pickNextClip(candidates, currentClipRef.current?.id);
       transitionToClip(nextClip);
     }
-  }, [targetInteractionState, currentEmotion, transitionToClip]);
+  }, [targetInteractionState, currentEmotion, sadtalkerVideoUrl, transitionToClip]);
 
   /**
    * Handle one-shot clip completion (return to idle or listening).
@@ -255,15 +282,17 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
     };
   }, []);
 
-  // Subtle real-time audio lip modulation during active speech
-  const dynamicMouthScale = isSpeaking && audioLevel > 0.04 ? Math.min(1.08, 1.0 + audioLevel * 0.12) : 1.0;
+  const isSadTalkerActive = currentClipRef.current?.id.startsWith('sadtalker_');
+
+  // Subtle real-time audio lip modulation during active speech (for standard fallback clips)
+  const dynamicMouthScale = isSpeaking && !isSadTalkerActive && audioLevel > 0.04 ? Math.min(1.08, 1.0 + audioLevel * 0.12) : 1.0;
 
   // Dynamically synchronize speaking video rate with real-time speech energy
   useEffect(() => {
     const activeVideo = activeLayerRef.current === 'A' ? videoRefA.current : videoRefB.current;
     if (!activeVideo) return;
 
-    if (isSpeaking) {
+    if (isSpeaking && !isSadTalkerActive) {
       if (audioLevel > 0.035) {
         // Voice is actively producing speech sound: play smoothly
         if (activeVideo.paused) {
@@ -277,7 +306,7 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
     } else {
       activeVideo.playbackRate = 1.0;
     }
-  }, [isSpeaking, audioLevel]);
+  }, [isSpeaking, isSadTalkerActive, audioLevel]);
 
   return (
     <div

@@ -97,6 +97,13 @@ describe('Voice-First Live Companion Page', () => {
           }),
         });
       }
+      if (url === '/api/avatars/active') {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ detail: 'No active avatar found' }),
+        });
+      }
       return Promise.reject(new Error(`Unhandled URL in mock: ${url}`));
     });
   });
@@ -133,6 +140,7 @@ describe('Voice-First Live Companion Page', () => {
 
     // Action buttons
     expect(screen.getByTitle('Voice & Audio Settings')).toBeInTheDocument();
+    expect(screen.getByTitle('Aria Avatar Studio (3D Character Customizer)')).toBeInTheDocument();
     expect(screen.getByTitle('Customize Appearance & Personality')).toBeInTheDocument();
     expect(screen.getByTitle('Companion Memory Vault')).toBeInTheDocument();
     expect(screen.getByTitle('Exit to Companions Hub')).toBeInTheDocument();
@@ -308,5 +316,147 @@ describe('Voice-First Live Companion Page', () => {
       },
       { timeout: 2000 }
     );
+  });
+
+  it('fetches and binds the authenticated user active 3D avatar configuration from /api/avatars/active', async () => {
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url === '/api/avatars/active') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'avatar-active-1',
+            name: 'Aria Studio Custom',
+            config_version: 2,
+            config: {
+              version: 2,
+              baseModelId: 'aria_photorealistic',
+              face: {
+                jawWidth: 0.65,
+                chinLength: 0.55,
+                cheekboneHeight: 0.7,
+                eyeSize: 0.6,
+                noseLength: 0.5,
+                noseBridgeWidth: 0.45,
+                lipFullnessUpper: 0.6,
+                lipFullnessLower: 0.6,
+                mouthWidth: 0.55,
+              },
+              materials: {
+                skinTone: '#F5D0B5',
+                eyeColor: '#2B5E3B',
+              },
+              hair: {
+                assetId: 'ponytail01',
+                color: '#4A2E18',
+              },
+              body: {
+                height: 1.05,
+                muscle: 0.5,
+                weight: 0.5,
+              },
+              clothing: {
+                topColor: '#232938',
+              },
+            },
+          }),
+        });
+      }
+      if (url === '/api/companions') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ companions: mockCompanions }),
+        });
+      }
+      if (url === '/api/conversations') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ conversations: [] }),
+        });
+      }
+      if (url.includes('/messages')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ messages: [] }),
+        });
+      }
+      if (url === '/api/voice/greeting') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation_id: 'conv-1',
+            reply_text: 'Hi there!',
+            companion_id: 'comp-1',
+            companion_name: 'Maya',
+            audio_base64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
+            audio_format: 'wav',
+          }),
+        });
+      }
+      return Promise.reject(new Error(`Unhandled URL in mock: ${url}`));
+    });
+
+    render(<ChatPage />);
+
+    // Verify /api/avatars/active was called with no-store
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/avatars/active',
+        expect.objectContaining({
+          cache: 'no-store',
+        })
+      );
+    });
+
+    // Companion name displays properly
+    expect(await screen.findByText('Maya')).toBeInTheDocument();
+  });
+
+  it('handles 404 from /api/avatars/active gracefully and falls back to default companion', async () => {
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url === '/api/avatars/active') {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ detail: 'No active avatar found' }),
+        });
+      }
+      if (url === '/api/companions') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ companions: mockCompanions }),
+        });
+      }
+      if (url === '/api/conversations') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ conversations: [] }),
+        });
+      }
+      if (url.includes('/messages')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ messages: [] }),
+        });
+      }
+      if (url === '/api/voice/greeting') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation_id: 'conv-1',
+            reply_text: 'Hi there!',
+            companion_id: 'comp-1',
+            companion_name: 'Maya',
+            audio_base64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
+            audio_format: 'wav',
+          }),
+        });
+      }
+      return Promise.reject(new Error(`Unhandled URL in mock: ${url}`));
+    });
+
+    render(<ChatPage />);
+
+    // Companion should fall back to default companion Maya
+    expect(await screen.findByText('Maya')).toBeInTheDocument();
   });
 });

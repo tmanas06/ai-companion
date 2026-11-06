@@ -1,8 +1,11 @@
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from structlog import get_logger
 
 from app.api.v1.router import api_router
@@ -58,6 +61,22 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(api_router, prefix="/api/v1")
+
+    # Serve 3D model assets directly from API to allow mobile access without Next.js running
+    custom_models_dir = os.getenv("MODELS_STATIC_DIR")
+    api_static_models = Path(__file__).resolve().parent.parent.parent / "static" / "models"
+    web_public_models = Path(__file__).resolve().parent.parent.parent.parent / "web" / "public" / "models"
+
+    resolved_models_dir = None
+    if custom_models_dir and Path(custom_models_dir).is_dir():
+        resolved_models_dir = Path(custom_models_dir)
+    elif api_static_models.is_dir():
+        resolved_models_dir = api_static_models
+    elif web_public_models.is_dir():
+        resolved_models_dir = web_public_models
+
+    if resolved_models_dir:
+        app.mount("/models", StaticFiles(directory=str(resolved_models_dir)), name="models")
 
     @app.get("/health", tags=["health"])
     async def health_check():

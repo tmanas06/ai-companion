@@ -106,6 +106,18 @@ class Settings(BaseSettings):
     STT_PROVIDER: str = "faster-whisper"
     STT_MODEL: str = "tiny.en"
 
+    # SadTalker Realistic AI Lip-Sync Configuration (Experimental, disabled by default)
+    SADTALKER_ENABLED: bool = Field(default=False, description="Enable local SadTalker talking-head video generation")
+    SADTALKER_BASE_PATH: str = Field(default="tools/sadtalker", description="Relative or absolute path to SadTalker repository")
+    SADTALKER_PYTHON_PATH: str = Field(default="tools/sadtalker/venv/bin/python", description="Path to isolated Python binary")
+    SADTALKER_CHECKPOINTS_DIR: str = Field(default="tools/sadtalker/checkpoints", description="Path to model checkpoints directory")
+    SADTALKER_DEVICE: str = Field(default="cpu", description="Inference device: 'cpu' or 'cuda'")
+    SADTALKER_TIMEOUT_SECONDS: int = Field(default=1800, description="Maximum execution timeout in seconds for video generation")
+    SADTALKER_MAX_AUDIO_SECONDS: float = Field(default=30.0, description="Maximum permitted audio length in seconds")
+    SADTALKER_OUTPUT_DIR: str = Field(default="artifacts/sadtalker-generated", description="Directory for generated talking-head videos")
+    SADTALKER_MAX_CONCURRENT_JOBS: int = Field(default=1, description="Concurrency limit for local inference jobs")
+    SADTALKER_FILE_RETENTION_HOURS: int = Field(default=24, description="Retention duration for generated temporary videos")
+
 
 @lru_cache
 def get_settings() -> Settings:

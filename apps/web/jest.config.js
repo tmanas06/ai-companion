@@ -3,6 +3,7 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@ai-companion/shared$': '<rootDir>/../../packages/shared/src/index.ts',
     '^@ai-companion/shared/(.*)$': '<rootDir>/../../packages/shared/src/$1',
   },
   testMatch: ['**/*.test.{ts,tsx}'],

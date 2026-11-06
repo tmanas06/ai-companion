@@ -1,15 +1,25 @@
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
-import { useFonts } from 'expo-font';
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+} from '@expo-google-fonts/jetbrains-mono';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    'Inter-Regular': require('@expo-google-fonts/inter/Inter_400Regular.ttf'),
-    'Inter-Medium': require('@expo-google-fonts/inter/Inter_500Medium.ttf'),
-    'Inter-SemiBold': require('@expo-google-fonts/inter/Inter_600SemiBold.ttf'),
-    'Inter-Bold': require('@expo-google-fonts/inter/Inter_700Bold.ttf'),
-    'JetBrainsMono-Regular': require('@expo-google-fonts/jetbrains-mono/JetBrainsMono_400Regular.ttf'),
-    'JetBrainsMono-Medium': require('@expo-google-fonts/jetbrains-mono/JetBrainsMono_500Medium.ttf'),
+    'Inter-Regular': Inter_400Regular,
+    'Inter-Medium': Inter_500Medium,
+    'Inter-SemiBold': Inter_600SemiBold,
+    'Inter-Bold': Inter_700Bold,
+    'JetBrainsMono-Regular': JetBrainsMono_400Regular,
+    'JetBrainsMono-Medium': JetBrainsMono_500Medium,
   });
 
   if (!fontsLoaded) {

@@ -42,4 +42,5 @@ class VoiceTurnResponse(BaseModel):
     model: str
     emotion: Optional[str] = "neutral"
     emotion_intensity: Optional[float] = 0.5
+    sadtalker_job_id: Optional[str] = Field(default=None, description="Optional background SadTalker lip-sync job ID")
 

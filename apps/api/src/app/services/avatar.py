@@ -26,7 +26,7 @@ class AvatarService:
             user_id=user_id,
             name=data.name,
             config_version=data.config.version if data.config else 1,
-            config=data.config.model_dump() if data.config else {"version": 1, "layers": []},
+            config=data.config.model_dump(by_alias=True) if data.config else {"version": 1, "layers": []},
             is_active=True,
         )
         self.session.add(avatar)
@@ -93,7 +93,7 @@ class AvatarService:
         if data.name is not None:
             avatar.name = data.name
         if data.config is not None:
-            avatar.config = data.config.model_dump()
+            avatar.config = data.config.model_dump(by_alias=True)
             avatar.config_version = data.config.version
         if data.is_active is not None:
             if data.is_active:

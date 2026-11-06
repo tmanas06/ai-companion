@@ -5,9 +5,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, useProgress } from '@react-three/drei';
 import * as THREE from 'three';
 import {
+  AvatarConfig,
   CompanionVoiceState,
   VisemeCue,
 } from '../AvatarRenderer';
+import { Avatar3DConfig } from '@ai-companion/shared';
 import { FullBodyAvatarModel } from './FullBodyAvatarModel';
 import { StudioEnvironment } from './StudioEnvironment';
 import {
@@ -20,6 +22,7 @@ import {
 export interface FullBodyAvatarSceneProps {
   modelUrl?: string;
   animationsUrl?: string;
+  config?: AvatarConfig | Avatar3DConfig;
   state?: CompanionVoiceState;
   audioLevel?: number;
   isSpeaking?: boolean;
@@ -163,6 +166,7 @@ function PerformanceMonitor({ onFpsUpdate }: { onFpsUpdate?: (fps: number) => vo
 export const FullBodyAvatarScene: React.FC<FullBodyAvatarSceneProps> = ({
   modelUrl = '/models/aria_photorealistic.glb',
   animationsUrl = '/models/animations.glb',
+  config,
   state = 'idle',
   audioLevel = 0,
   isSpeaking = false,
@@ -225,6 +229,7 @@ export const FullBodyAvatarScene: React.FC<FullBodyAvatarSceneProps> = ({
           <FullBodyAvatarModel
             modelUrl={modelUrl}
             animationsUrl={animationsUrl}
+            config={config}
             state={state}
             audioLevel={audioLevel}
             isSpeaking={isSpeaking}

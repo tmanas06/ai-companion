@@ -66,3 +66,7 @@ dist/
 # Misc
 *.tsbuildinfo
 .eslintcache
+
+# Local Tools & Test Artifacts
+tools/
+artifacts/
