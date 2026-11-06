@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = Field(default="development", pattern="^(development|staging|production|test)$")
     LOG_LEVEL: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+    PRIVACY_MODE: Literal["strict-local", "private-machine", "cloud-allowed"] = Field(
+        default="private-machine",
+        description="Privacy enforcement mode: strict-local, private-machine, or cloud-allowed",
+    )
+    DEFAULT_PROVIDER: str | None = Field(
+        default=None,
+        description="Explicit default provider override (e.g. 'ollama', 'mock', 'openai', 'anthropic')",
+    )
 
     DATABASE_URL: PostgresDsn
     DATABASE_POOL_SIZE: int = 20

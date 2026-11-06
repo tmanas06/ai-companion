@@ -119,13 +119,26 @@ class Message(SQLModel, table=True):
     conversation_id: UUID = Field(
         sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True),
     )
-    role: MessageRole = Field(sa_column=Column(sa.Enum(MessageRole), nullable=False))
+    role: MessageRole = Field(
+        sa_column=Column(
+            sa.Enum(MessageRole, name="message_role", values_callable=lambda x: [e.value for e in x]),
+            nullable=False,
+        )
+    )
     content: str = Field(sa_column=Column(Text, nullable=False))
     token_count: Optional[int] = Field(default=None)
     model: Optional[str] = Field(default=None, max_length=100)
     tool_calls: Optional[dict] = Field(default=None, sa_column=Column(sa.JSON, nullable=True))
-    tool_call_id: Optional[str] = Field(default=None, max_length=100)
-    metadata: dict = Field(default_factory=dict, sa_column=Column(sa.JSON, nullable=False))
+    metadata_: dict = Field(default_factory=dict, sa_column=Column("metadata", sa.JSON, nullable=False))
+
+    @property
+    def metadata(self) -> dict:
+        return self.metadata_
+
+    @metadata.setter
+    def metadata(self, value: dict) -> None:
+        self.metadata_ = value
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_column=Column(nullable=False),

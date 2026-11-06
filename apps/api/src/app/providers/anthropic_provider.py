@@ -2,6 +2,7 @@ import os
 from typing import AsyncIterator, Optional
 import httpx
 
+from app.core.exceptions import ProviderConfigurationError
 from app.providers import (
     BaseProvider,
     CompletionRequest,
@@ -69,8 +70,16 @@ class AnthropicProvider(BaseProvider):
         if system_prompt:
             payload["system"] = system_prompt
 
-        response = await client.post("/messages", json=payload)
-        response.raise_for_status()
+        try:
+            response = await client.post("/messages", json=payload)
+            response.raise_for_status()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError("Anthropic service is unreachable") from e
+        except httpx.HTTPStatusError as e:
+            raise ProviderConfigurationError(f"Anthropic API returned error: {e.response.status_code}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Anthropic request failed: {e}") from e
+
         data = response.json()
 
         return CompletionResponse(
@@ -99,25 +108,32 @@ class AnthropicProvider(BaseProvider):
         if system_prompt:
             payload["system"] = system_prompt
 
-        async with client.stream("POST", "/messages", json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    try:
-                        import json
-                        data = json.loads(data_str)
-                        if data.get("type") == "content_block_delta":
-                            delta = data.get("delta", {})
-                            content = delta.get("text", "")
-                            if content:
-                                yield StreamingChunk(content=content)
-                        elif data.get("type") == "message_stop":
-                            yield StreamingChunk(content="", finish_reason="stop")
-                    except json.JSONDecodeError:
-                        continue
+        try:
+            async with client.stream("POST", "/messages", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            import json
+                            data = json.loads(data_str)
+                            if data.get("type") == "content_block_delta":
+                                delta = data.get("delta", {})
+                                content = delta.get("text", "")
+                                if content:
+                                    yield StreamingChunk(content=content)
+                            elif data.get("type") == "message_stop":
+                                yield StreamingChunk(content="", finish_reason="stop")
+                        except json.JSONDecodeError:
+                            continue
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError("Anthropic service is unreachable") from e
+        except httpx.HTTPStatusError as e:
+            raise ProviderConfigurationError(f"Anthropic API returned error: {e.response.status_code}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Anthropic streaming request failed: {e}") from e
 
     async def count_tokens(self, text: str, model: str) -> int:
         # Anthropic doesn't provide a public tokenizer, use approximation

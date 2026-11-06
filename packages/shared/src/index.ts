@@ -139,3 +139,4 @@ export type MemorySource = Memory["source"];
 export type ConsentStatus = Memory["consentStatus"];
 export type MessageRole = Message["role"];
 export type AvatarLayerType = AvatarLayer["type"];
+export type PrivacyMode = "strict-local" | "private-machine" | "cloud-allowed";

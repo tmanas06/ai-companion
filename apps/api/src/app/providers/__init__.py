@@ -128,35 +128,52 @@ class ProviderRegistry:
         """Register a provider."""
         self._providers[provider.provider_type] = provider
 
-    def get(self, provider_type: ProviderType) -> BaseProvider:
+    def get(self, provider_type: ProviderType | str) -> BaseProvider:
         """Get a provider by type."""
-        if provider_type not in self._providers:
-            raise ValueError(f"Provider {provider_type} not registered")
-        return self._providers[provider_type]
+        from app.core.exceptions import ProviderConfigurationError
+
+        if isinstance(provider_type, str):
+            try:
+                pt = ProviderType(provider_type.lower())
+            except ValueError:
+                raise ProviderConfigurationError(f"Unknown provider type: '{provider_type}'")
+        else:
+            pt = provider_type
+
+        if pt not in self._providers:
+            raise ProviderConfigurationError(f"Provider '{pt.value}' is not configured or registered")
+        return self._providers[pt]
 
     def get_default(self) -> BaseProvider:
-        """Get the default provider (mock if available, otherwise first registered)."""
+        """Get the default provider without silent mock fallback."""
+        from app.core.exceptions import ProviderConfigurationError
+
+        if ProviderType.OLLAMA in self._providers:
+            return self._providers[ProviderType.OLLAMA]
+        non_mock = [p for pt, p in self._providers.items() if pt != ProviderType.MOCK]
+        if non_mock:
+            return non_mock[0]
         if ProviderType.MOCK in self._providers:
             return self._providers[ProviderType.MOCK]
-        if self._providers:
-            return next(iter(self._providers.values()))
-        raise ValueError("No providers registered")
+        raise ProviderConfigurationError("No providers registered")
 
     def list_providers(self) -> list[ProviderType]:
         """List all registered provider types."""
         return list(self._providers.keys())
 
 
-# Global provider registry
-provider_registry = ProviderRegistry()
-
-# Register mock provider by default
-provider_registry.register(MockProvider())
-
-# Re-export from submodules
-from app.providers.openai_provider import OpenAIProvider, AnthropicProvider
+# Re-export canonical providers and privacy helpers
+from app.core.exceptions import PrivacyViolationError, ProviderConfigurationError
+from app.providers.openai_provider import OpenAIProvider
+from app.providers.anthropic_provider import AnthropicProvider
 from app.providers.ollama_provider import OllamaProvider
-from app.providers.factory import initialize_providers, get_provider, initialize_default_providers
+from app.providers.privacy import is_loopback_endpoint, validate_provider_privacy
+from app.providers.factory import (
+    initialize_providers,
+    get_provider,
+    initialize_default_providers,
+    provider_registry,
+)
 
 __all__ = [
     "ProviderType",
@@ -173,4 +190,8 @@ __all__ = [
     "initialize_providers",
     "get_provider",
     "initialize_default_providers",
+    "PrivacyViolationError",
+    "ProviderConfigurationError",
+    "is_loopback_endpoint",
+    "validate_provider_privacy",
 ]

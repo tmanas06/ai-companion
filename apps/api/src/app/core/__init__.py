@@ -19,6 +19,8 @@ from app.core.security import (
     verify_password,
 )
 
+from app.core.exceptions import PrivacyViolationError, ProviderConfigurationError
+
 __all__ = [
     "settings",
     "get_settings",
@@ -38,4 +40,6 @@ __all__ = [
     "generate_keys",
     "setup_logging",
     "get_logger",
+    "PrivacyViolationError",
+    "ProviderConfigurationError",
 ]

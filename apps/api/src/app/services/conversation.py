@@ -115,7 +115,7 @@ class ConversationService:
             model=data.model,
             tool_calls=data.tool_calls,
             tool_call_id=data.tool_call_id,
-            metadata=data.metadata or {},
+            metadata_=data.metadata or {},
         )
         self.session.add(message)
 
@@ -173,68 +173,90 @@ class ConversationService:
         request: ChatRequest,
     ) -> tuple["Conversation", "Message", "Message"]:
         """
-        Process a chat request: create/get conversation, add user message,
-        generate AI response, add assistant message.
+        Process a chat request:
+        1. Authorize conversation and companion (no database mutations).
+        2. Resolve AI provider and enforce privacy policy before writing or dispatching data.
+        3. Build context for AI inference.
+        4. Execute inference.
+        5. Persist conversation (if new), user message, and assistant message atomically.
         """
-        # Get or create conversation
+        # 1. Authorize conversation and companion upfront
+        conversation: Optional["Conversation"] = None
         if request.conversation_id:
             conversation = await self.get_conversation(user_id, request.conversation_id)
             if not conversation:
                 raise ValueError("Conversation not found")
             if request.companion_id and conversation.companion_id != request.companion_id:
                 raise ValueError("Companion mismatch")
+            companion_id = conversation.companion_id
         else:
             if not request.companion_id:
                 raise ValueError("companion_id required for new conversation")
-            conversation = await self.create_conversation(
-                user_id,
-                ConversationCreate(companion_id=request.companion_id),
-            )
+            companion_id = request.companion_id
 
-        # Add user message
-        user_message = await self.add_message(
-            conversation.id,
-            MessageCreate(
-                role="user",
-                content=request.message,
-            ),
-        )
+        companion = await self.session.get(Companion, companion_id)
+        if not companion or companion.user_id != user_id:
+            raise ValueError("Companion not found or access denied")
 
-        # Build context for AI
-        recent_messages = await self.get_recent_messages(conversation.id, limit=20)
-        messages = [{"role": m.role, "content": m.content} for m in recent_messages]
+        # 2. Get AI provider (enforcing global privacy mode before prompt or history is sent or persisted)
+        companion_llm_config = companion.llm_config or {}
+        requested_provider = companion_llm_config.get("provider")
+        provider = get_provider(provider_type=requested_provider)
+        model = companion_llm_config.get("model") or provider.get_default_model()
 
-        # Get companion for system prompt and model config
-        companion = await self.session.get(Companion, conversation.companion_id)
-        if not companion:
-            raise ValueError("Companion not found")
+        # 3. Build context for AI (prior messages + current user message)
+        if conversation:
+            recent_messages = await self.get_recent_messages(conversation.id, limit=20)
+            messages = [{"role": m.role, "content": m.content} for m in recent_messages]
+        else:
+            messages = []
+        messages.append({"role": "user", "content": request.message})
 
-        # Get AI provider
-        provider = get_provider()
-        model = companion.llm_config.get("model") or provider.get_default_model()
-
-        # Generate AI response
+        # 4. Generate AI response (no database locks or open transactions held during LLM call)
         completion_request = CompletionRequest(
             messages=messages,
             model=model,
-            temperature=companion.llm_config.get("temperature", 0.7),
-            max_tokens=companion.llm_config.get("max_tokens"),
+            temperature=companion_llm_config.get("temperature", 0.7),
+            max_tokens=companion_llm_config.get("max_tokens"),
             system_prompt=companion.system_prompt,
         )
 
         response = await provider.complete(completion_request)
 
-        # Add assistant message
-        assistant_message = await self.add_message(
-            conversation.id,
-            MessageCreate(
-                role="assistant",
-                content=response.content,
-                token_count=response.usage.get("total_tokens") if response.usage else None,
-                model=response.model,
-                metadata={"finish_reason": response.finish_reason},
-            ),
+        # 5. Persist conversation (if new), user message, and assistant message atomically
+        if not conversation:
+            conversation = Conversation(
+                user_id=user_id,
+                companion_id=companion_id,
+            )
+            self.session.add(conversation)
+            await self.session.flush()
+
+        user_message = Message(
+            conversation_id=conversation.id,
+            role="user",
+            content=request.message,
         )
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=response.content,
+            token_count=response.usage.get("total_tokens") if response.usage else None,
+            model=response.model,
+            metadata_={"finish_reason": response.finish_reason},
+        )
+        self.session.add(user_message)
+        self.session.add(assistant_message)
+
+        now = datetime.now(UTC)
+        conversation.message_count += 2
+        conversation.last_message_at = now
+        conversation.updated_at = now
+
+        await self.session.commit()
+        await self.session.refresh(conversation)
+        await self.session.refresh(user_message)
+        await self.session.refresh(assistant_message)
 
         return conversation, user_message, assistant_message
 

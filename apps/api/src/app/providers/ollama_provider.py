@@ -2,6 +2,7 @@ import os
 from typing import AsyncIterator, Optional
 import httpx
 
+from app.core.exceptions import ProviderConfigurationError
 from app.providers import (
     BaseProvider,
     CompletionRequest,
@@ -47,20 +48,55 @@ class OllamaProvider(BaseProvider):
             self._client = None
 
     async def _ensure_model(self, model: str) -> None:
+        """Check if the requested model is installed in Ollama.
+
+        Does NOT automatically pull missing models during inference/chat.
+        Raises ProviderConfigurationError if model is not installed or Ollama is unreachable.
+        """
         client = await self._get_client()
         try:
-            response = await client.get(f"/api/tags")
+            response = await client.get("/api/tags")
             response.raise_for_status()
             data = response.json()
-            models = [m["name"] for m in data.get("models", [])]
-            if model not in models:
-                # Try to pull the model
-                pull_response = await client.post("/api/pull", json={"name": model})
-                pull_response.raise_for_status()
-        except httpx.HTTPError:
-            pass  # Model might already exist or pull failed
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Failed to query Ollama models from {self.base_url}: {e}") from e
 
-    async def complete(self, request) -> "CompletionResponse":
+        installed_models = [m.get("name", "") for m in data.get("models", [])]
+        candidates = {model}
+        if ":" in model:
+            base, tag = model.split(":", 1)
+            if tag == "latest":
+                candidates.add(base)
+        else:
+            candidates.add(f"{model}:latest")
+
+        found = any(
+            inst in candidates or inst.split(":")[0] in candidates
+            for inst in installed_models
+        )
+        if not found:
+            raise ProviderConfigurationError(
+                f"Model '{model}' is not installed in Ollama. "
+                f"Please install it explicitly via 'ollama pull {model}'."
+            )
+
+    async def pull_model(self, model: str) -> None:
+        """Explicitly pull a model from the registry.
+
+        Must only be invoked by deliberate administrative or operator action.
+        """
+        client = await self._get_client()
+        try:
+            pull_response = await client.post("/api/pull", json={"name": model}, timeout=600.0)
+            pull_response.raise_for_status()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Failed to pull model '{model}': {e}") from e
+
+    async def complete(self, request: CompletionRequest) -> "CompletionResponse":
         await self._ensure_model(request.model)
         client = await self._get_client()
 
@@ -75,8 +111,14 @@ class OllamaProvider(BaseProvider):
         if request.max_tokens:
             payload["options"]["num_predict"] = request.max_tokens
 
-        response = await client.post("/api/chat", json=payload)
-        response.raise_for_status()
+        try:
+            response = await client.post("/api/chat", json=payload)
+            response.raise_for_status()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Ollama inference request failed: {e}") from e
+
         data = response.json()
 
         return CompletionResponse(
@@ -90,7 +132,7 @@ class OllamaProvider(BaseProvider):
             finish_reason=data.get("done_reason"),
         )
 
-    async def stream(self, request) -> AsyncIterator["StreamingChunk"]:
+    async def stream(self, request: CompletionRequest) -> AsyncIterator["StreamingChunk"]:
         await self._ensure_model(request.model)
         client = await self._get_client()
 
@@ -105,40 +147,32 @@ class OllamaProvider(BaseProvider):
         if request.max_tokens:
             payload["options"]["num_predict"] = request.max_tokens
 
-        async with client.stream("POST", "/api/chat", json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.strip():
-                    try:
-                        import json
-                        data = json.loads(line)
-                        content = data.get("message", {}).get("content", "")
-                        if content:
-                            done = data.get("done", False)
-                            finish_reason = "stop" if done else None
-                            yield StreamingChunk(content=content, finish_reason=finish_reason)
-                    except json.JSONDecodeError:
-                        continue
+        try:
+            async with client.stream("POST", "/api/chat", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        try:
+                            import json
+                            data = json.loads(line)
+                            content = data.get("message", {}).get("content", "")
+                            if content:
+                                done = data.get("done", False)
+                                finish_reason = "stop" if done else None
+                                yield StreamingChunk(content=content, finish_reason=finish_reason)
+                        except json.JSONDecodeError:
+                            continue
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Ollama streaming request failed: {e}") from e
 
     async def count_tokens(self, text: str, model: str) -> int:
-        # Use Ollama's embed endpoint for token counting if available
         client = await self._get_client()
         try:
             response = await client.post("/api/embeddings", json={"model": model, "prompt": text})
             if response.status_code == 200:
-                # Approximate token count from embedding dimension
                 return len(text) // 4
         except Exception:
             pass
         return len(text.split())
-
-    def get_available_models(self) -> list[str]:
-        return [
-            "llama3.1:8b",
-            "llama3.1:70b",
-            "llama3.2:3b",
-            "llama3.2:1b",
-            "mistral:7b",
-            "codellama:7b",
-            "phi3:mini",
-        ]
