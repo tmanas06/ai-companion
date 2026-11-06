@@ -191,20 +191,33 @@ class Memory(SQLModel, table=True):
         sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True),
     )
     content: str = Field(sa_column=Column(Text, nullable=False))
-    memory_type: MemoryType = Field(sa_column=Column(sa.Enum(MemoryType), nullable=False))
+    memory_type: MemoryType = Field(
+        sa_column=Column(
+            sa.Enum(MemoryType, name="memory_type", values_callable=lambda x: [e.value for e in x]),
+            nullable=False,
+        )
+    )
     category: Optional[str] = Field(default=None, max_length=100)
-    source: MemorySource = Field(sa_column=Column(sa.Enum(MemorySource), nullable=False))
+    source: MemorySource = Field(
+        sa_column=Column(
+            sa.Enum(MemorySource, name="memory_source", values_callable=lambda x: [e.value for e in x]),
+            nullable=False,
+        )
+    )
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     is_sensitive: bool = Field(default=False)
     consent_status: ConsentStatus = Field(
-        sa_column=Column(sa.Enum(ConsentStatus), nullable=False),
+        sa_column=Column(
+            sa.Enum(ConsentStatus, name="consent_status", values_callable=lambda x: [e.value for e in x]),
+            nullable=False,
+        ),
         default=ConsentStatus.PENDING,
     )
     consent_requested_at: Optional[datetime] = Field(default=None)
     consent_granted_at: Optional[datetime] = Field(default=None)
     embedding: Optional[list[float]] = Field(
         default=None,
-        sa_column=Column(Vector(1536), nullable=True),
+        sa_column=Column(Vector(768), nullable=True),
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

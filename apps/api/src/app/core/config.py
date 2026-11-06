@@ -51,6 +51,32 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
 
+    EMBEDDING_PROVIDER: str | None = Field(
+        default=None,
+        description="Explicit embedding provider override ('ollama', 'mock'). Defaults based on PRIVACY_MODE.",
+    )
+    EMBEDDING_MODEL: str = Field(
+        default="nomic-embed-text",
+        description="Embedding model name",
+    )
+    EMBEDDING_DIMENSION: int = Field(
+        default=768,
+        description="Expected embedding vector dimension",
+        ge=1,
+    )
+    RAG_TOP_K: int = Field(
+        default=5,
+        description="Maximum number of relevant memories to retrieve for conversation context",
+        ge=1,
+        le=50,
+    )
+    RAG_SIMILARITY_THRESHOLD: float = Field(
+        default=0.5,
+        description="Maximum cosine distance threshold for memory retrieval (0.0 to 2.0)",
+        ge=0.0,
+        le=2.0,
+    )
+
     S3_ENDPOINT_URL: str | None = None
     S3_ACCESS_KEY_ID: str | None = None
     S3_SECRET_ACCESS_KEY: str | None = None

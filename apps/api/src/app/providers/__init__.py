@@ -174,6 +174,12 @@ from app.providers.factory import (
     initialize_default_providers,
     provider_registry,
 )
+from app.providers.embedding import (
+    BaseEmbeddingProvider,
+    OllamaEmbeddingProvider,
+    MockEmbeddingProvider,
+    get_embedding_provider,
+)
 
 __all__ = [
     "ProviderType",
@@ -190,6 +196,10 @@ __all__ = [
     "initialize_providers",
     "get_provider",
     "initialize_default_providers",
+    "BaseEmbeddingProvider",
+    "OllamaEmbeddingProvider",
+    "MockEmbeddingProvider",
+    "get_embedding_provider",
     "PrivacyViolationError",
     "ProviderConfigurationError",
     "is_loopback_endpoint",

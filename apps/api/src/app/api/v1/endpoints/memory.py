@@ -111,6 +111,32 @@ async def search_memories(
     )
 
 
+@router.get("/vector-search", response_model=list[MemoryResponse])
+async def search_similar_memories(
+    q: str = Query(..., min_length=1, max_length=500),
+    companion_id: UUID = Query(...),
+    limit: int = Query(5, ge=1, le=50),
+    threshold: Optional[float] = Query(None, ge=0.0, le=2.0),
+    current_user: User = Depends(get_current_user),
+    service: MemoryService = Depends(get_memory_service),
+):
+    """Semantic vector search for memories belonging to the user and active companion."""
+    from app.providers.embedding import get_embedding_provider
+    from app.core.config import settings
+
+    provider = get_embedding_provider()
+    query_vector = await provider.embed(q)
+    cutoff = threshold if threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
+    memories = await service.search_similar_memories(
+        user_id=current_user.id,
+        companion_id=companion_id,
+        query_vector=query_vector,
+        limit=limit,
+        threshold=cutoff,
+    )
+    return memories
+
+
 @router.get("/{memory_id}", response_model=MemoryResponse)
 async def get_memory(
     memory_id: UUID,
