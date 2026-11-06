@@ -14,6 +14,7 @@ from app.providers.tts import BaseTextToSpeechProvider, get_tts_provider
 from app.schemas.conversation import ChatRequest, ConversationCreate, MessageCreate
 from app.schemas.voice import VoiceTurnResponse
 from app.services.conversation import ConversationService, get_conversation_service
+from app.services.emotion import analyze_conversational_emotion
 
 
 class VoiceService:
@@ -130,6 +131,9 @@ class VoiceService:
         provider_type = getattr(self.tts_provider, "provider_type", "mock")
         audio_format = "audio/mpeg" if provider_type == "edge-tts" else "audio/wav"
 
+        # 6. Analyze conversational emotion for photorealistic video avatar expression
+        emotion, emotion_intensity = analyze_conversational_emotion(transcript, assistant_msg.content)
+
         return VoiceTurnResponse(
             conversation_id=conv_res.id,
             user_message_id=user_msg.id,
@@ -142,6 +146,8 @@ class VoiceService:
             audio_format=audio_format,
             tts_provider=provider_type,
             model=assistant_msg.model or "ollama",
+            emotion=emotion,
+            emotion_intensity=emotion_intensity,
         )
 
     async def execute_greeting(
@@ -251,6 +257,8 @@ class VoiceService:
             audio_format=audio_format,
             tts_provider=provider_type,
             model="companion-greeting",
+            emotion="happy",
+            emotion_intensity=0.8,
         )
 
 

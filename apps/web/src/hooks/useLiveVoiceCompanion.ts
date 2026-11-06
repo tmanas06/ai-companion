@@ -6,6 +6,8 @@ import {
   selectVoiceForCompanion,
   getCompanionVoiceProfile,
 } from '@/lib/voice-manager';
+import { validateAvatarEmotion } from '@/lib/emotion-selector';
+import { AvatarEmotion } from '@/lib/avatar-video-manifest';
 
 export interface VoiceSettings {
   speechRate: number;
@@ -109,6 +111,8 @@ export function useLiveVoiceCompanion({
   const [voiceSettings, setVoiceSettingsState] = useState<VoiceSettings>(() =>
     loadCompanionVoiceSettings(companionId, companionName, companionGender)
   );
+  const [currentEmotion, setCurrentEmotion] = useState<AvatarEmotion>('neutral');
+  const [emotionIntensity, setEmotionIntensity] = useState<number>(0.5);
 
   const [handsFree, setHandsFreeState] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -230,6 +234,7 @@ export function useLiveVoiceCompanion({
   const liveTranscriptRef = useRef<string>('');
   const speechRecognitionRef = useRef<BrowserSpeechRecognitionLike | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isInterruptedRef = useRef<boolean>(false);
 
   // Stop and clean up microphone stream and analysis
   const cleanupMicrophone = useCallback(() => {
@@ -460,6 +465,7 @@ export function useLiveVoiceCompanion({
 
   // Immediate Interruption handler
   const interrupt = useCallback(() => {
+    isInterruptedRef.current = true;
     // 0. Cancel any scheduled auto-listen
     if (autoListenTimerRef.current) {
       clearTimeout(autoListenTimerRef.current);
@@ -772,6 +778,11 @@ export function useLiveVoiceCompanion({
         setLastCompanionSpeech(replyText);
         setErrorMessage(null);
 
+        // Extract and validate emotional tone for avatar rendering
+        const detectedEmotion = validateAvatarEmotion(data.emotion);
+        setCurrentEmotion(detectedEmotion);
+        setEmotionIntensity(typeof data.emotion_intensity === 'number' ? data.emotion_intensity : 0.5);
+
         // Play companion response:
         // When backend provides audio_base64 and user hasn't explicitly forced browser-only,
         // play the high-fidelity neural audio
@@ -842,6 +853,7 @@ export function useLiveVoiceCompanion({
       interrupt();
     }
 
+    isInterruptedRef.current = false;
     setErrorMessage(null);
     setState('requesting_microphone');
     setTranscript('');
@@ -965,6 +977,10 @@ export function useLiveVoiceCompanion({
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/wav' });
         const recognizedText = liveTranscriptRef.current || undefined;
         cleanupMicrophone();
+
+        if (isInterruptedRef.current || stateRef.current === 'interrupted') {
+          return;
+        }
 
         if (blob.size === 0 && !recognizedText) {
           setState('idle');
@@ -1106,6 +1122,10 @@ export function useLiveVoiceCompanion({
         setLastCompanionSpeech(greetingSpeech);
         setErrorMessage(null);
 
+        const detectedEmotion = validateAvatarEmotion(data.emotion || 'happy');
+        setCurrentEmotion(detectedEmotion);
+        setEmotionIntensity(typeof data.emotion_intensity === 'number' ? data.emotion_intensity : 0.8);
+
         if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
           playAssistantAudio(data.audio_base64, greetingSpeech, currentSessionId, data.audio_format || 'audio/mpeg');
         } else {
@@ -1230,5 +1250,7 @@ export function useLiveVoiceCompanion({
     setHandsFree,
     toggleHandsFree,
     isUserSpeaking,
+    currentEmotion,
+    emotionIntensity,
   };
 }

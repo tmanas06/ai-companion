@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { CompanionPersonalityConfig, inferCompanionGender } from '@/lib/companion-presets';
-import { AvatarRenderer } from '@/components/companion/AvatarRenderer';
+import { FullBodyAvatar } from '@/components/companion/FullBodyAvatar';
 import { useLiveVoiceCompanion } from '@/hooks/useLiveVoiceCompanion';
 import { VoiceSettingsModal } from '@/components/companion/VoiceSettingsModal';
 
@@ -70,6 +70,8 @@ function LiveCompanionStage() {
     handsFree,
     toggleHandsFree,
     isUserSpeaking,
+    currentEmotion,
+    emotionIntensity,
   } = useLiveVoiceCompanion({
     companionId: selectedCompanion?.id,
     conversationId: activeConversationId,
@@ -406,70 +408,79 @@ function LiveCompanionStage() {
         </div>
       </header>
 
-      {/* Main Center Stage: Prominent Visible Avatar */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-6 max-w-4xl mx-auto w-full">
-        {/* Mobile State indicator */}
-        <div className="sm:hidden mb-4">
-          <div
-            className={`flex items-center space-x-2 px-3.5 py-1 rounded-full border text-xs font-medium tracking-wide ${stateBadge.badgeClass}`}
-          >
-            <span className={`w-2 h-2 rounded-full ${stateBadge.dotClass}`} />
-            <span>{stateBadge.label}</span>
+      {/* Main Center Stage: Full-Body 3D Companion Stage */}
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-between w-full min-h-0 overflow-hidden">
+        {/* Top Overlay Notifications */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 w-full max-w-md px-4 flex flex-col items-center pointer-events-none z-30">
+          {/* Mobile State indicator */}
+          <div className="sm:hidden mb-2 pointer-events-auto">
+            <div
+              className={`flex items-center space-x-2 px-3.5 py-1 rounded-full border text-xs font-medium tracking-wide shadow-md ${stateBadge.badgeClass}`}
+            >
+              <span className={`w-2 h-2 rounded-full ${stateBadge.dotClass}`} />
+              <span>{stateBadge.label}</span>
+            </div>
           </div>
+
+          {/* Error Notification Alert */}
+          {errorMessage && state === 'error' && (
+            <div className="pointer-events-auto w-full p-3.5 rounded-2xl bg-rose-950/85 backdrop-blur-md border border-rose-800/80 text-rose-200 text-xs flex items-center justify-between shadow-2xl animate-in fade-in duration-200">
+              <div className="flex items-center space-x-2.5">
+                <svg className="w-4 h-4 text-rose-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span>{errorMessage}</span>
+              </div>
+              <button
+                onClick={() => startListening()}
+                className="ml-3 px-2.5 py-1 rounded-lg bg-rose-800/80 hover:bg-rose-700 text-white font-medium shrink-0 transition"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Autoplay prompt banner if browser policy blocked direct audio */}
+          {autoplayBlocked && (
+            <button
+              onClick={resumeAudio}
+              className="pointer-events-auto mt-2 px-4 py-2 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 flex items-center space-x-2 animate-bounce transition cursor-pointer"
+            >
+              <span>🔊</span>
+              <span>Tap to unmute {selectedCompanion?.name || 'companion'}</span>
+            </button>
+          )}
         </div>
 
-        {/* Error Notification Alert */}
-        {errorMessage && state === 'error' && (
-          <div className="mb-4 w-full max-w-md p-4 rounded-2xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs flex items-center justify-between shadow-xl animate-in fade-in duration-200">
-            <div className="flex items-center space-x-2.5">
-              <svg className="w-4 h-4 text-rose-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span>{errorMessage}</span>
-            </div>
-            <button
-              onClick={() => startListening()}
-              className="ml-3 px-2.5 py-1 rounded-lg bg-rose-800/60 hover:bg-rose-700 text-white font-medium shrink-0 transition"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* Autoplay prompt banner if browser policy blocked direct audio */}
-        {autoplayBlocked && (
-          <button
-            onClick={resumeAudio}
-            className="mb-4 px-4 py-2 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 flex items-center space-x-2 animate-bounce transition cursor-pointer"
-          >
-            <span>🔊</span>
-            <span>Tap to unmute {selectedCompanion?.name || 'companion'}</span>
-          </button>
-        )}
-
-        {/* Large Character Portrait */}
-        <div className="relative flex flex-col items-center">
-          <AvatarRenderer
+        {/* Photorealistic Video / 3D Avatar Canvas Stage (Full-bleed immersion behind floating UI) */}
+        <div className="absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+          <FullBodyAvatar
             config={personality?.avatar_config}
             previewUrl={personality?.avatar_preview_url}
-            name={selectedCompanion?.name || 'Companion'}
-            size={340}
+            name={selectedCompanion?.name || 'Aria'}
             state={state}
             audioLevel={audioLevel}
             isSpeaking={state === 'speaking'}
-            className="transition-all duration-300"
+            currentEmotion={currentEmotion}
+            emotionIntensity={emotionIntensity}
+            className="w-full h-full"
           />
+        </div>
 
-          {/* Floating Live Speech Subtitle / Caption */}
-          <div className="mt-8 max-w-xl text-center px-6 min-h-[5rem] flex items-center justify-center">
+        {/* Flexible spacer pushing floating subtitle & voice controls to the bottom */}
+        <div className="flex-1 pointer-events-none" />
+
+        {/* Floating Live Speech Subtitle / Caption Deck */}
+        <div className="relative z-20 w-full max-w-xl px-4 pb-2">
+          <div className="min-h-[4rem] px-5 py-3 rounded-2xl bg-slate-950/75 backdrop-blur-md border border-slate-900/80 shadow-2xl flex items-center justify-center text-center">
             {state === 'speaking' || lastCompanionSpeech ? (
-              <div className="space-y-1.5 animate-in fade-in duration-300">
+              <div className="space-y-1 animate-in fade-in duration-300">
                 <div className="flex items-center justify-center space-x-2">
-                  <p className="text-base sm:text-lg text-slate-100 font-medium leading-relaxed drop-shadow-sm">
+                  <p className="text-sm sm:text-base text-slate-100 font-medium leading-relaxed drop-shadow-sm">
                     &ldquo;{lastCompanionSpeech}&rdquo;
                   </p>
                   {lastCompanionSpeech && state !== 'speaking' && (
@@ -490,15 +501,15 @@ function LiveCompanionStage() {
                     </button>
                   )}
                 </div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-violet-400">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-400">
                   {selectedCompanion?.name}
                 </div>
               </div>
             ) : state === 'listening' ? (
-              <div className="flex flex-col items-center space-y-1 animate-in fade-in duration-200">
+              <div className="flex flex-col items-center space-y-0.5 animate-in fade-in duration-200">
                 <div className="flex items-center space-x-2 text-emerald-400">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span className="text-sm font-semibold tracking-wide">
+                  <span className="text-xs sm:text-sm font-semibold tracking-wide">
                     {transcript
                       ? `Listening: "${transcript}"`
                       : isUserSpeaking
@@ -508,26 +519,26 @@ function LiveCompanionStage() {
                       : 'Listening... (Tap mic to send)'}
                   </span>
                 </div>
-                <div className="text-[11px] text-emerald-400/80">
+                <div className="text-[10px] text-emerald-400/80">
                   {handsFree
                     ? 'A ~1.5s natural pause will automatically send your turn'
                     : 'Tap mic or press Space to finish'}
                 </div>
               </div>
             ) : state === 'processing_speech' ? (
-              <div className="text-sm text-sky-400 animate-pulse">
+              <div className="text-xs sm:text-sm text-sky-400 animate-pulse">
                 Transcribing what you said...
               </div>
             ) : state === 'generating_response' ? (
-              <div className="text-sm text-indigo-400 animate-pulse">
+              <div className="text-xs sm:text-sm text-indigo-400 animate-pulse">
                 {selectedCompanion?.name} is thinking...
               </div>
             ) : transcript ? (
-              <div className="text-sm text-slate-400 italic">
+              <div className="text-xs sm:text-sm text-slate-400 italic">
                 You: &ldquo;{transcript}&rdquo;
               </div>
             ) : (
-              <div className="text-xs sm:text-sm text-slate-500 font-light">
+              <div className="text-xs text-slate-500 font-light">
                 {handsFree ? (
                   <span>
                     Free-Flow Voice active. Tap the microphone or say hello to start.

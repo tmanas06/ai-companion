@@ -141,7 +141,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 // Utility icons
 function SparklesIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg className={className} width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L11 3l2.286 6.857L21 12l-5.714 2.143L13 21z" />
     </svg>
   );

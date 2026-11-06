@@ -40,4 +40,6 @@ class VoiceTurnResponse(BaseModel):
     audio_format: str = "audio/wav"
     tts_provider: Optional[str] = "mock"
     model: str
+    emotion: Optional[str] = "neutral"
+    emotion_intensity: Optional[float] = 0.5
 

@@ -161,3 +161,11 @@ Object.defineProperty(window, 'speechSynthesis', {
   value: mockSpeechSynthesis,
   writable: true,
 });
+
+class MockResizeObserver {
+  observe = jest.fn();
+  unobserve = jest.fn();
+  disconnect = jest.fn();
+}
+global.ResizeObserver = MockResizeObserver;
+window.ResizeObserver = MockResizeObserver;
