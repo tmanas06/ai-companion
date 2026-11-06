@@ -14,3 +14,18 @@ if (typeof global.ReadableStream === 'undefined') {
   // @ts-expect-error Node's ReadableStream is compatible
   global.ReadableStream = ReadableStream;
 }
+
+const mockRouter = {
+  push: jest.fn(),
+  replace: jest.fn(),
+  prefetch: jest.fn(),
+  back: jest.fn(),
+};
+const mockSearchParams = new URLSearchParams();
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => mockRouter,
+  usePathname: () => '/chat',
+  useSearchParams: () => mockSearchParams,
+  redirect: jest.fn(),
+}));

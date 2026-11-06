@@ -20,6 +20,22 @@ export interface Companion {
   updatedAt: string;
 }
 
+export interface CompanionCreate {
+  name: string;
+  systemPrompt?: string;
+  personality?: Record<string, unknown>;
+  llmConfig?: Record<string, unknown>;
+  isActive?: boolean;
+}
+
+export interface CompanionUpdate {
+  name?: string;
+  systemPrompt?: string;
+  personality?: Record<string, unknown>;
+  llmConfig?: Record<string, unknown>;
+  isActive?: boolean;
+}
+
 export interface Conversation {
   id: string;
   userId: string;

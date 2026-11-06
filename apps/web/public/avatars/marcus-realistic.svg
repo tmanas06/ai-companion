@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="marcus-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="50%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <radialGradient id="marcus-glow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#94a3b8" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="marcus-skin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="60%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </linearGradient>
+    <linearGradient id="marcus-cloth" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="soft-shadow-m" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="300" height="300" rx="24" fill="url(#marcus-bg)"/>
+  <circle cx="150" cy="130" r="110" fill="url(#marcus-glow)"/>
+
+  <!-- Torso & Suit -->
+  <path d="M75 280 C90 235 120 220 150 220 C180 220 210 235 225 280 L225 300 L75 300 Z" fill="url(#marcus-cloth)" filter="url(#soft-shadow-m)"/>
+  <!-- Shirt & Tie -->
+  <polygon points="140,220 160,220 155,270 145,270" fill="#f8fafc"/>
+  <polygon points="147,225 153,225 152,265 148,265" fill="#0284c7"/>
+
+  <!-- Neck -->
+  <path d="M135 190 L135 225 C145 228 155 228 165 225 L165 190 Z" fill="#b45309"/>
+
+  <!-- Head / Face (chiseled jaw) -->
+  <polygon points="102,115 110,175 140,205 160,205 190,175 198,115 150,95" fill="url(#marcus-skin)" filter="url(#soft-shadow-m)"/>
+
+  <!-- Ears -->
+  <ellipse cx="98" cy="145" rx="6" ry="12" fill="#b45309"/>
+  <ellipse cx="202" cy="145" rx="6" ry="12" fill="#b45309"/>
+
+  <!-- Hair (Fade Cut) -->
+  <path d="M98 115 C96 85 125 70 150 70 C175 70 204 85 202 115 C190 98 175 88 150 88 C125 88 110 98 98 115 Z" fill="#18181b"/>
+  <!-- Clean Beard Line -->
+  <path d="M110 160 C120 195 140 205 150 205 C160 205 180 195 190 160 C182 185 165 195 150 195 C135 195 118 185 110 160 Z" fill="#27272a" opacity="0.85"/>
+
+  <!-- Eyes -->
+  <ellipse cx="130" cy="138" rx="8" ry="4.5" fill="#ffffff"/>
+  <circle cx="131" cy="138" r="3.5" fill="#451a03"/>
+  <circle cx="132" cy="137" r="1.2" fill="#ffffff"/>
+
+  <ellipse cx="170" cy="138" rx="8" ry="4.5" fill="#ffffff"/>
+  <circle cx="169" cy="138" r="3.5" fill="#451a03"/>
+  <circle cx="170" cy="137" r="1.2" fill="#ffffff"/>
+
+  <!-- Eyebrows -->
+  <path d="M120 128 L140 128" fill="none" stroke="#18181b" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M160 128 L180 128" fill="none" stroke="#18181b" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Nose -->
+  <path d="M150 135 L146 156 L154 156" fill="none" stroke="#78350f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Mouth -->
+  <path d="M138 175 C144 177 156 177 162 175" fill="none" stroke="#78350f" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Style Tag Pill -->
+  <rect x="20" y="20" width="105" height="24" rx="12" fill="#000000" fill-opacity="0.45"/>
+  <text x="72.5" y="36" fill="#cbd5e1" font-size="11" font-weight="600" text-anchor="middle" font-family="system-ui, sans-serif">PHOTOREALISTIC</text>
+</svg>

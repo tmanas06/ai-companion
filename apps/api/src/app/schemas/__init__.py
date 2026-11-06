@@ -34,8 +34,18 @@ from app.schemas.avatar import (
     AvatarConfig,
     AvatarLayerConfig,
 )
+from app.schemas.companion import (
+    CompanionCreate,
+    CompanionUpdate,
+    CompanionResponse,
+    CompanionListResponse,
+)
 
 __all__ = [
+    "CompanionCreate",
+    "CompanionUpdate",
+    "CompanionResponse",
+    "CompanionListResponse",
     "UserRegister",
     "UserLogin",
     "TokenResponse",

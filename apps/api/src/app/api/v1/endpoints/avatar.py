@@ -17,7 +17,7 @@ from app.services.avatar import AvatarService, get_avatar_service
 from app.models import User
 
 
-router = APIRouter(prefix="/avatars", tags=["avatars"])
+router = APIRouter(tags=["avatars"])
 
 
 @router.post("", response_model=AvatarResponse, status_code=status.HTTP_201_CREATED)

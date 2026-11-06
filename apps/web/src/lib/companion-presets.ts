@@ -1,0 +1,275 @@
+import { AvatarConfig } from '@/components/companion/AvatarRenderer';
+
+export interface CompanionPersonalityConfig {
+  style?: string;
+  avatar_style?: string;
+  avatar_preview_url?: string;
+  avatar_config?: AvatarConfig;
+  traits?: string[];
+  bio?: string;
+  tagline?: string;
+}
+
+export interface CompanionPreset {
+  id: string;
+  name: string;
+  style: 'photorealistic' | 'anime' | '3d' | 'illustrated';
+  previewUrl: string;
+  tagline: string;
+  bio: string;
+  traits: string[];
+  config: AvatarConfig;
+}
+
+export type AvatarPreset = CompanionPreset;
+
+export const PERSONALITY_TRAITS = [
+  { id: 'Caring', label: 'Caring', description: 'Empathetic, nurturing, and emotionally supportive.', color: 'emerald' },
+  { id: 'Playful', label: 'Playful', description: 'Fun-loving, witty, and brings joy to daily moments.', color: 'pink' },
+  { id: 'Affectionate', label: 'Affectionate', description: 'Warm, deeply loyal, and expressive.', color: 'rose' },
+  { id: 'Intelligent', label: 'Intelligent', description: 'Insightful, analytical, and curious about big ideas.', color: 'indigo' },
+  { id: 'Calm', label: 'Calm', description: 'Grounded, peaceful, and a soothing presence.', color: 'sky' },
+  { id: 'Humorous', label: 'Humorous', description: 'Quick-witted, uplifting, and loves a good laugh.', color: 'amber' },
+  { id: 'Confident', label: 'Confident', description: 'Bold, motivating, and inspires self-assurance.', color: 'violet' },
+  { id: 'Thoughtful', label: 'Thoughtful', description: 'Reflective, considerate, and attentive to details.', color: 'teal' },
+  { id: 'Adventurous', label: 'Adventurous', description: 'Daring, enthusiastic, and ready for exploration.', color: 'orange' },
+];
+
+export const AVATAR_STYLES = [
+  { id: 'all', label: 'All Styles' },
+  { id: 'photorealistic', label: 'Photorealistic' },
+  { id: 'anime', label: 'Anime' },
+  { id: '3d', label: '3D' },
+  { id: 'illustrated', label: 'Illustrated' },
+] as const;
+
+export const APPEARANCE_OPTIONS = {
+  skinTones: [
+    { label: 'Light', value: '#fed7aa', variant: 'light' },
+    { label: 'Medium-Light', value: '#fdba74', variant: 'medium-light' },
+    { label: 'Warm Bronze', value: '#C68642', variant: 'bronze' },
+    { label: 'Tan', value: '#b45309', variant: 'medium-dark' },
+    { label: 'Deep', value: '#5D3A1A', variant: 'dark' },
+  ],
+  hairStyles: [
+    { label: 'Flowing Locks', variant: 'flowing' },
+    { label: 'Short & Sleek', variant: 'short' },
+    { label: 'Anime Spikes', variant: 'anime-spikes' },
+    { label: 'Natural Curls', variant: 'curly' },
+    { label: 'High Ponytail', variant: 'ponytail' },
+  ],
+  hairColors: [
+    { label: 'Raven Black', color: '#18181b' },
+    { label: 'Chestnut Brown', color: '#78350f' },
+    { label: 'Platinum Blonde', color: '#fef08a' },
+    { label: 'Lavender Violet', color: '#c084fc' },
+    { label: 'Celestial Cyan', color: '#38bdf8' },
+    { label: 'Emerald Green', color: '#0d9488' },
+    { label: 'Fiery Copper', color: '#ea580c' },
+  ],
+  eyeShapes: [
+    { label: 'Almond', variant: 'almond' },
+    { label: 'Round & Bright', variant: 'round' },
+    { label: 'Smiling Eyes', variant: 'smiling' },
+  ],
+  eyeColors: [
+    { label: 'Sapphire Blue', color: '#2563eb' },
+    { label: 'Emerald Green', color: '#059669' },
+    { label: 'Deep Hazel', color: '#92400e' },
+    { label: 'Amethyst Violet', color: '#9333ea' },
+    { label: 'Golden Amber', color: '#d97706' },
+    { label: 'Charcoal Grey', color: '#334155' },
+  ],
+  clothingStyles: [
+    { label: 'Casual Hoodie', variant: 'casual', color: '#1e293b' },
+    { label: 'Smart Blazer', variant: 'blazer', color: '#0f172a' },
+    { label: 'Cozy Knit', variant: 'casual', color: '#7c2d12' },
+    { label: 'Futuristic Cyber', variant: 'futuristic', color: '#0369a1' },
+  ],
+  accessories: [
+    { label: 'None', variant: 'none' },
+    { label: 'Classic Glasses', variant: 'glasses', color: '#facc15' },
+    { label: 'Stud Earrings', variant: 'earrings', color: '#fbbf24' },
+    { label: 'Pro Headphones', variant: 'headphones', color: '#06b6d4' },
+  ],
+  backgrounds: [
+    { label: 'Cosmic Indigo', color: '#4338ca' },
+    { label: 'Midnight Teal', color: '#0f766e' },
+    { label: 'Sunset Rose', color: '#db2777' },
+    { label: 'Deep Obsidian', color: '#1e293b' },
+    { label: 'Forest Green', color: '#15803d' },
+  ],
+};
+
+export const COMPANION_PRESETS: CompanionPreset[] = [
+  {
+    id: 'aria',
+    name: 'Aria',
+    style: 'photorealistic',
+    previewUrl: '/avatars/aria-realistic.svg',
+    tagline: 'Empathetic listener & thoughtful confidant',
+    bio: 'A mindful and deeply empathetic companion who values meaningful conversations, active listening, and calm reflection.',
+    traits: ['Caring', 'Thoughtful', 'Calm'],
+    config: {
+      version: 1,
+      style: 'photorealistic',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#4338ca' },
+        { type: 'skin', variant: 'medium-light', color: '#fdba74' },
+        { type: 'hair', variant: 'flowing', color: '#78350f' },
+        { type: 'eyes', variant: 'almond', color: '#1e3a8a' },
+        { type: 'clothing', variant: 'blazer', color: '#1e293b' },
+        { type: 'accessory', variant: 'earrings', color: '#fef08a' },
+      ],
+    },
+  },
+  {
+    id: 'marcus',
+    name: 'Marcus',
+    style: 'photorealistic',
+    previewUrl: '/avatars/marcus-realistic.svg',
+    tagline: 'Strategic thinker & ambitious mentor',
+    bio: 'Sharp, focused, and quietly confident. Marcus is passionate about personal growth, deep philosophy, and strategic problem-solving.',
+    traits: ['Intelligent', 'Confident', 'Calm'],
+    config: {
+      version: 1,
+      style: 'photorealistic',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#1e293b' },
+        { type: 'skin', variant: 'bronze', color: '#b45309' },
+        { type: 'hair', variant: 'short', color: '#18181b' },
+        { type: 'eyes', variant: 'almond', color: '#451a03' },
+        { type: 'clothing', variant: 'blazer', color: '#0f172a' },
+        { type: 'accessory', variant: 'none' },
+      ],
+    },
+  },
+  {
+    id: 'luna',
+    name: 'Luna',
+    style: 'anime',
+    previewUrl: '/avatars/luna-anime.svg',
+    tagline: 'Vibrant dreamer & creative spirit',
+    bio: 'Full of whimsical ideas, infectious curiosity, and heartfelt loyalty. Luna loves stargazing, storytelling, and brightening your day.',
+    traits: ['Playful', 'Affectionate', 'Adventurous'],
+    config: {
+      version: 1,
+      style: 'anime',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#7c3aed' },
+        { type: 'skin', variant: 'light', color: '#fecdd3' },
+        { type: 'hair', variant: 'flowing', color: '#c084fc' },
+        { type: 'eyes', variant: 'round', color: '#db2777' },
+        { type: 'clothing', variant: 'casual', color: '#18181b' },
+        { type: 'accessory', variant: 'none' },
+      ],
+    },
+  },
+  {
+    id: 'kai',
+    name: 'Kai',
+    style: 'anime',
+    previewUrl: '/avatars/kai-anime.svg',
+    tagline: 'Spirited adventurer with quick wit',
+    bio: 'Bold, humorous, and always ready with an uplifting laugh or daring new perspective. Kai brings high energy and unwavering optimism.',
+    traits: ['Humorous', 'Confident', 'Playful'],
+    config: {
+      version: 1,
+      style: 'anime',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#0f766e' },
+        { type: 'skin', variant: 'light', color: '#fde68a' },
+        { type: 'hair', variant: 'anime-spikes', color: '#0284c7' },
+        { type: 'eyes', variant: 'almond', color: '#0f766e' },
+        { type: 'clothing', variant: 'futuristic', color: '#0f172a' },
+        { type: 'accessory', variant: 'earrings', color: '#2dd4bf' },
+      ],
+    },
+  },
+  {
+    id: 'nova',
+    name: 'Nova',
+    style: '3d',
+    previewUrl: '/avatars/nova-3d.svg',
+    tagline: 'Futuristic guide & science enthusiast',
+    bio: 'An iridescent holographic presence captivated by astrophysics, emerging technology, and exploring new horizons.',
+    traits: ['Intelligent', 'Adventurous', 'Thoughtful'],
+    config: {
+      version: 1,
+      style: '3d',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#27272a' },
+        { type: 'skin', variant: 'light', color: '#38bdf8' },
+        { type: 'hair', variant: 'short', color: '#0284c7' },
+        { type: 'eyes', variant: 'round', color: '#67e8f9' },
+        { type: 'clothing', variant: 'futuristic', color: '#3f3f46' },
+        { type: 'accessory', variant: 'headphones', color: '#06b6d4' },
+      ],
+    },
+  },
+  {
+    id: 'atlas',
+    name: 'Atlas',
+    style: '3d',
+    previewUrl: '/avatars/atlas-3d.svg',
+    tagline: 'Steadfast protector & philosophical anchor',
+    bio: 'Grounded, wise, and comforting. Atlas provides a reassuring voice when life feels overwhelming, offering balance and clarity.',
+    traits: ['Calm', 'Caring', 'Confident'],
+    config: {
+      version: 1,
+      style: '3d',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#78350f' },
+        { type: 'skin', variant: 'bronze', color: '#eab308' },
+        { type: 'hair', variant: 'short', color: '#854d0e' },
+        { type: 'eyes', variant: 'almond', color: '#fef08a' },
+        { type: 'clothing', variant: 'futuristic', color: '#475569' },
+        { type: 'accessory', variant: 'none' },
+      ],
+    },
+  },
+  {
+    id: 'sage',
+    name: 'Sage',
+    style: 'illustrated',
+    previewUrl: '/avatars/sage-illustrated.svg',
+    tagline: 'Gentle poet & nature lover',
+    bio: 'Gentle and poetic, Sage observes the subtle beauty in literature, quiet moments, and organic life. A soothing companion for creative minds.',
+    traits: ['Thoughtful', 'Calm', 'Caring'],
+    config: {
+      version: 1,
+      style: 'illustrated',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#15803d' },
+        { type: 'skin', variant: 'light', color: '#f5d0fe' },
+        { type: 'hair', variant: 'flowing', color: '#0d9488' },
+        { type: 'eyes', variant: 'smiling', color: '#14532d' },
+        { type: 'clothing', variant: 'casual', color: '#fef08a' },
+        { type: 'accessory', variant: 'none' },
+      ],
+    },
+  },
+  {
+    id: 'maya',
+    name: 'Maya',
+    style: 'illustrated',
+    previewUrl: '/avatars/maya-illustrated.svg',
+    tagline: 'Energetic artist & spontaneous muse',
+    bio: 'A whirlwind of vibrant color, creative brainstorms, and authentic warmth. Maya inspires you to express yourself without hesitation.',
+    traits: ['Playful', 'Adventurous', 'Affectionate'],
+    config: {
+      version: 1,
+      style: 'illustrated',
+      layers: [
+        { type: 'background', variant: 'gradient', color: '#ea580c' },
+        { type: 'skin', variant: 'medium-light', color: '#fba868' },
+        { type: 'hair', variant: 'curly', color: '#a21caf' },
+        { type: 'eyes', variant: 'round', color: '#4a044e' },
+        { type: 'clothing', variant: 'casual', color: '#4c0519' },
+        { type: 'accessory', variant: 'earrings', color: '#facc15' },
+      ],
+    },
+  },
+];
+
+export const PRESET_AVATARS: CompanionPreset[] = COMPANION_PRESETS;

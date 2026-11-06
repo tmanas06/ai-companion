@@ -19,6 +19,7 @@ from app.schemas.conversation import (
 from app.providers import get_provider, CompletionRequest
 from app.core.database import get_db
 from app.core.exceptions import PrivacyViolationError, ProviderConfigurationError
+from app.services.companion import build_companion_system_prompt
 
 
 def strip_internal_reasoning(content: str) -> str:
@@ -273,7 +274,11 @@ class ConversationService:
         messages.append({"role": "user", "content": request.message})
 
         # 3b. Retrieve relevant approved memories for user and companion
-        system_prompt = companion.system_prompt or ""
+        system_prompt = build_companion_system_prompt(
+            name=companion.name,
+            personality=companion.personality,
+            base_prompt=companion.system_prompt,
+        )
         try:
             from app.core.config import settings
             from app.providers.embedding import get_embedding_provider
@@ -408,7 +413,11 @@ class ConversationService:
         messages.append({"role": "user", "content": request.message})
 
         # Memory retrieval
-        system_prompt = companion.system_prompt or ""
+        system_prompt = build_companion_system_prompt(
+            name=companion.name,
+            personality=companion.personality,
+            base_prompt=companion.system_prompt,
+        )
         try:
             from app.core.config import settings
             from app.providers.embedding import get_embedding_provider

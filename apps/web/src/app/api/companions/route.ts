@@ -19,6 +19,9 @@ export async function GET(request: NextRequest) {
   });
 
   const data = await response.json();
+  if (data && Array.isArray(data.items) && !data.companions) {
+    data.companions = data.items;
+  }
   return NextResponse.json(data, { status: response.status });
 }
 

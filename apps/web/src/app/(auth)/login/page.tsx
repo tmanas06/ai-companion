@@ -21,7 +21,22 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push('/chat');
+      // Determine post-login destination:
+      // If companion exists -> /chat, else -> /onboarding/companion
+      try {
+        const companionsRes = await fetch('/api/companions');
+        if (companionsRes.ok) {
+          const data = await companionsRes.json();
+          const list = Array.isArray(data) ? data : (data.items || data.companions || []);
+          if (list.length > 0) {
+            router.push(`/chat?companionId=${list[0].id}`);
+            return;
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Could not check companions post-login:', checkErr);
+      }
+      router.push('/onboarding/companion');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

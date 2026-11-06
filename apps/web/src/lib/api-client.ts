@@ -31,6 +31,13 @@ interface TypedApiClient {
   refresh: () => Promise<TokenResponse>;
   me: () => Promise<User>;
 
+  // Companions
+  createCompanion: (data: CompanionCreate) => Promise<Companion>;
+  listCompanions: (params?: ListParams) => Promise<CompanionListResponse>;
+  getCompanion: (id: string) => Promise<Companion>;
+  updateCompanion: (id: string, data: CompanionUpdate) => Promise<Companion>;
+  deleteCompanion: (id: string) => Promise<void>;
+
   // Conversations
   createConversation: (data: ConversationCreate) => Promise<Conversation>;
   listConversations: (params?: ListParams) => Promise<ConversationListResponse>;
@@ -91,6 +98,41 @@ interface RegisterRequest {
 interface LoginRequest {
   email: string;
   password: string;
+}
+
+export interface Companion {
+  id: string;
+  userId: string;
+  name: string;
+  systemPrompt: string;
+  personality: Record<string, unknown>;
+  llmConfig: Record<string, unknown>;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanionCreate {
+  name: string;
+  systemPrompt?: string;
+  personality?: Record<string, unknown>;
+  llmConfig?: Record<string, unknown>;
+  isActive?: boolean;
+}
+
+export interface CompanionUpdate {
+  name?: string;
+  systemPrompt?: string;
+  personality?: Record<string, unknown>;
+  llmConfig?: Record<string, unknown>;
+  isActive?: boolean;
+}
+
+export interface CompanionListResponse {
+  companions: Companion[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 interface Conversation {
@@ -442,6 +484,35 @@ class ApiClient implements TypedApiClient {
 
   async me(): Promise<User> {
     return this.request<User>('/auth/me');
+  }
+
+  // Companions
+  async createCompanion(data: CompanionCreate): Promise<Companion> {
+    return this.request<Companion>('/companions', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async listCompanions(params?: ListParams): Promise<CompanionListResponse> {
+    return this.request<CompanionListResponse>('/companions', { params });
+  }
+
+  async getCompanion(id: string): Promise<Companion> {
+    return this.request<Companion>(`/companions/${id}`);
+  }
+
+  async updateCompanion(id: string, data: CompanionUpdate): Promise<Companion> {
+    return this.request<Companion>(`/companions/${id}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteCompanion(id: string): Promise<void> {
+    return this.request<void>(`/companions/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   // Conversations

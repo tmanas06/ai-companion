@@ -34,7 +34,7 @@ export default function RegisterPage() {
 
     try {
       await register(email, password, fullName);
-      router.push('/chat');
+      router.push('/onboarding/companion');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {

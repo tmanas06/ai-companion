@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="kai-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#042f2e"/>
+      <stop offset="50%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <radialGradient id="kai-glow" cx="50%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#5eead4" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#0f766e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="kai-skin" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="kai-hair" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="60%" stop-color="#0369a1"/>
+      <stop offset="100%" stop-color="#075985"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="300" height="300" rx="24" fill="url(#kai-bg)"/>
+  <circle cx="150" cy="120" r="110" fill="url(#kai-glow)"/>
+
+  <!-- Torso & Streetwear Jacket -->
+  <path d="M85 270 C100 235 125 220 150 220 C175 220 200 235 215 270 L215 300 L85 300 Z" fill="#0f172a"/>
+  <!-- Cyber / High Collar neon trims -->
+  <path d="M120 220 L150 260 L180 220" fill="none" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Neck -->
+  <path d="M138 185 L138 225 C146 228 154 228 162 225 L162 185 Z" fill="#fde68a"/>
+
+  <!-- Anime Jaw / Face -->
+  <polygon points="105,125 115,180 150,210 185,180 195,125 150,85" fill="url(#kai-skin)"/>
+
+  <!-- Eyes (Intense, sharp) -->
+  <ellipse cx="132" cy="140" rx="10" ry="11" fill="#0f766e"/>
+  <ellipse cx="130" cy="136" rx="3.5" ry="4" fill="#ffffff"/>
+  <ellipse cx="168" cy="140" rx="10" ry="11" fill="#0f766e"/>
+  <ellipse cx="166" cy="136" rx="3.5" ry="4" fill="#ffffff"/>
+
+  <!-- Eye Liners / Eyebrows -->
+  <path d="M118 132 L144 135" fill="none" stroke="#0369a1" stroke-width="3" stroke-linecap="round"/>
+  <path d="M156 135 L182 132" fill="none" stroke="#0369a1" stroke-width="3" stroke-linecap="round"/>
+
+  <path d="M120 124 L142 126" fill="none" stroke="#0284c7" stroke-width="3" stroke-linecap="round"/>
+  <path d="M158 126 L180 124" fill="none" stroke="#0284c7" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Nose -->
+  <path d="M150 148 L147 160 L152 160" fill="none" stroke="#b45309" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Confident Grin -->
+  <path d="M140 178 Q150 186 163 175" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Spiky Anime Hair -->
+  <polygon points="85,130 95,95 110,115 125,75 145,100 155,60 170,95 190,70 200,105 215,90 210,130 195,110 175,120 160,100 145,120 125,100 110,125" fill="url(#kai-hair)"/>
+
+  <!-- Earring -->
+  <circle cx="200" cy="155" r="3" fill="#2dd4bf"/>
+
+  <!-- Style Tag Pill -->
+  <rect x="20" y="20" width="65" height="24" rx="12" fill="#000000" fill-opacity="0.45"/>
+  <text x="52.5" y="36" fill="#99f6e4" font-size="11" font-weight="600" text-anchor="middle" font-family="system-ui, sans-serif">ANIME</text>
+</svg>

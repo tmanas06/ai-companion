@@ -32,8 +32,14 @@ else:
         "pool_timeout": settings.DATABASE_POOL_TIMEOUT,
     })
 
+async_db_url = (
+    str(settings.DATABASE_URL)
+    .replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    .replace("postgresql://", "postgresql+asyncpg://")
+)
+
 async_engine = create_async_engine(
-    str(settings.DATABASE_URL),
+    async_db_url,
     **async_engine_kwargs,
 )
 
