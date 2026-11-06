@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.database import get_async_session
+from app.core.database import get_db
 from app.models import User
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -112,7 +112,7 @@ security = HTTPBearer()
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncSession = Depends(get_db),
 ) -> User:
     """Get the current authenticated user from JWT token."""
     try:

@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 from typing import Optional, List
 from uuid import UUID
+from fastapi import Depends
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.models import Avatar, AvatarAsset, User
 from app.schemas.avatar import AvatarCreate, AvatarUpdate, AvatarConfig
 
@@ -202,6 +204,6 @@ class AvatarService:
         return list(assets), total
 
 
-async def get_avatar_service(session) -> "AvatarService":
+async def get_avatar_service(session: AsyncSession = Depends(get_db)) -> "AvatarService":
     """Dependency for getting avatar service."""
     return AvatarService(session)
