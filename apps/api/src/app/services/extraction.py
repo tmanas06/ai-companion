@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import Depends
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -442,34 +442,7 @@ class MemoryExtractionService:
             if not companion.is_active:
                 raise ValueError("Companion is inactive")
 
-            # 2. Fetch recent conversation messages
-            msg_stmt = (
-                select(Message)
-                .where(Message.conversation_id == conversation_id)
-                .order_by(desc(Message.created_at))
-                .limit(message_limit)
-            )
-            msg_result = await self.session.execute(msg_stmt)
-            messages = list(reversed(msg_result.scalars().all()))
-
-            # Must contain at least one user message
-            user_messages = [
-                m for m in messages if m.role == MessageRole.USER or m.role == "user"
-            ]
-            if not user_messages:
-                return []
-
-            # Idempotency / Progress check:
-            # If all messages in this batch have already been processed (<= last_extracted_message_id), skip
-            if conversation.last_extracted_message_id and messages:
-                if messages[-1].id == conversation.last_extracted_message_id:
-                    # Current turn already extracted
-                    return []
-
-            valid_user_message_ids = {m.id for m in user_messages}
-            fallback_source_message_id = user_messages[-1].id if user_messages else None
-
-            # 3. Retrieve existing active memories for prompt context
+            # 2. Retrieve existing active memories for prompt context
             existing_stmt = select(Memory).where(
                 Memory.user_id == user_id,
                 Memory.companion_id == actual_companion_id,
@@ -478,82 +451,257 @@ class MemoryExtractionService:
             existing_result = await self.session.execute(existing_stmt)
             existing_memories = list(existing_result.scalars().all())
 
-            # 4. Resolve provider and enforce privacy
+            # 3. Resolve provider and model upfront
             provider = self._get_provider(companion)
             model = ((companion.llm_config or {}).get("model")) or provider.get_default_model()
 
-            # 5. Format prompt with untrusted escaping
-            formatted_input = self._format_conversation_context(messages, existing_memories)
+            created_memories: list[Memory] = []
+            max_batches = 10
+            batches_run = 0
 
-            completion_request = CompletionRequest(
-                messages=[{"role": "user", "content": formatted_input}],
-                model=model,
-                temperature=0.0,
-                max_tokens=1000,
-                system_prompt=EXTRACTION_SYSTEM_PROMPT,
-            )
+            while batches_run < max_batches:
+                batches_run += 1
 
-            # 6. Execute inference (No database transaction lock held during LLM call)
-            response = await provider.complete(completion_request)
+                # Re-verify cursor message if set
+                cursor_msg: Optional[Message] = None
+                if conversation.last_extracted_message_id:
+                    cursor_msg = await self.session.get(Message, conversation.last_extracted_message_id)
+                    if not cursor_msg or cursor_msg.conversation_id != conversation.id:
+                        logger.warning(
+                            "Invalid or mismatched last_extracted_message_id %s for conversation %s; resetting cursor",
+                            conversation.last_extracted_message_id,
+                            conversation.id,
+                        )
+                        cursor_msg = None
 
-            # 7. Parse structured extraction candidates safely
-            candidates = parse_extraction_json(response.content)
+                # Fetch messages after cursor in deterministic chronological order (created_at ASC, id ASC)
+                # Avoids skipping messages and safely breaks ties on identical timestamps
+                if cursor_msg is not None:
+                    msg_stmt = (
+                        select(Message)
+                        .where(Message.conversation_id == conversation_id)
+                        .where(
+                            or_(
+                                Message.created_at > cursor_msg.created_at,
+                                and_(
+                                    Message.created_at == cursor_msg.created_at,
+                                    Message.id > cursor_msg.id,
+                                ),
+                            )
+                        )
+                        .order_by(Message.created_at.asc(), Message.id.asc())
+                        .limit(message_limit)
+                    )
+                else:
+                    msg_stmt = (
+                        select(Message)
+                        .where(Message.conversation_id == conversation_id)
+                        .order_by(Message.created_at.asc(), Message.id.asc())
+                        .limit(message_limit)
+                    )
 
-            # 8. Acquire companion-scoped database concurrency lock for deduplication and persistence
-            # In PostgreSQL, locking the companion row serializes concurrent extractions across
-            # all conversations for the same companion, including across multi-worker uvicorn processes.
-            await self.session.execute(
-                select(Companion.id).where(Companion.id == actual_companion_id).with_for_update()
-            )
+                msg_result = await self.session.execute(msg_stmt)
+                messages = list(msg_result.scalars().all())
 
-            # Re-fetch existing active memories inside the locked persistence transaction to account
-            # for any memory committed immediately prior by another concurrent conversation.
-            fresh_existing_result = await self.session.execute(existing_stmt)
-            fresh_existing_memories = list(fresh_existing_result.scalars().all())
+                if not messages:
+                    # Caught up: no more messages after cursor
+                    break
 
-            if not candidates:
-                # Update extraction progress marker idempotently
-                if messages:
+                # Filter user messages in this batch
+                user_messages = [
+                    m for m in messages if m.role == MessageRole.USER or m.role == "user"
+                ]
+
+                if not user_messages:
+                    # Batch contains only non-user messages (e.g. assistant turns).
+                    # Advance cursor so we do not get stuck, and continue.
                     conversation.last_extracted_message_id = messages[-1].id
                     self.session.add(conversation)
                     await self.session.commit()
-                return []
+                    if len(messages) < message_limit:
+                        break
+                    continue
 
-            memory_service = MemoryService(
-                self.session,
-                embedding_provider=self._get_embedding_provider(),
-            )
-            created_memories: list[Memory] = []
+                valid_user_message_ids = {m.id for m in user_messages}
+                fallback_source_message_id = user_messages[-1].id
 
-            for cand in candidates:
-                try:
-                    mem = await self._process_candidate(
-                        user_id=user_id,
-                        companion_id=actual_companion_id,
-                        conversation_id=conversation_id,
-                        candidate=cand,
-                        existing_memories=fresh_existing_memories,
-                        memory_service=memory_service,
-                        valid_user_message_ids=valid_user_message_ids,
-                        fallback_source_message_id=fallback_source_message_id,
+                # 4. Format prompt with untrusted escaping
+                formatted_input = self._format_conversation_context(messages, existing_memories)
+
+                completion_request = CompletionRequest(
+                    messages=[{"role": "user", "content": formatted_input}],
+                    model=model,
+                    temperature=0.0,
+                    max_tokens=1000,
+                    system_prompt=EXTRACTION_SYSTEM_PROMPT,
+                )
+
+                # 5. Execute inference (No database transaction lock held during LLM call)
+                response = await provider.complete(completion_request)
+
+                # 6. Parse structured extraction candidates safely
+                candidates = parse_extraction_json(response.content)
+
+                # 7. Acquire companion-scoped database concurrency lock for deduplication and persistence
+                await self.session.execute(
+                    select(Companion.id).where(Companion.id == actual_companion_id).with_for_update()
+                )
+
+                # Re-fetch conversation to detect if another worker advanced cursor concurrently
+                refreshed_conv = await self.session.get(Conversation, conversation.id)
+                if (
+                    refreshed_conv
+                    and refreshed_conv.last_extracted_message_id != conversation.last_extracted_message_id
+                ):
+                    logger.info(
+                        "Cursor advanced concurrently for conversation %s; halting batch loop",
+                        conversation.id,
                     )
-                    if mem is not None:
-                        created_memories.append(mem)
-                        # Append to fresh_existing_memories so later candidates in this same pass deduplicate
-                        fresh_existing_memories.append(mem)
-                except Exception as e:
+                    break
+
+                # Re-fetch existing active memories inside the locked transaction
+                fresh_existing_result = await self.session.execute(existing_stmt)
+                fresh_existing_memories = list(fresh_existing_result.scalars().all())
+
+                if not candidates:
+                    # No candidates extracted from this batch: advance progress marker
+                    conversation.last_extracted_message_id = messages[-1].id
+                    self.session.add(conversation)
+                    await self.session.commit()
+                    if len(messages) < message_limit:
+                        break
+                    continue
+
+                memory_service = MemoryService(
+                    self.session,
+                    embedding_provider=self._get_embedding_provider(),
+                )
+
+                batch_had_error = False
+                for cand in candidates:
+                    try:
+                        mem = await self._process_candidate(
+                            user_id=user_id,
+                            companion_id=actual_companion_id,
+                            conversation_id=conversation_id,
+                            candidate=cand,
+                            existing_memories=fresh_existing_memories,
+                            memory_service=memory_service,
+                            valid_user_message_ids=valid_user_message_ids,
+                            fallback_source_message_id=fallback_source_message_id,
+                        )
+                        if mem is not None:
+                            created_memories.append(mem)
+                            fresh_existing_memories.append(mem)
+                            existing_memories.append(mem)
+                    except Exception as e:
+                        logger.warning(
+                            "Unexpected failure processing candidate: %s",
+                            type(e).__name__,
+                        )
+                        batch_had_error = True
+                        break
+
+                if batch_had_error:
+                    # Requirement (Fix 2): Do not advance marker past incomplete work!
                     logger.warning(
-                        "Failed to process extracted memory candidate: %s",
-                        type(e).__name__,
+                        "Batch extraction encountered unexpected error; leaving cursor at %s for retry",
+                        conversation.last_extracted_message_id,
                     )
+                    break
 
-            # Update extraction progress marker
-            if messages:
+                # All candidates in this batch processed successfully (or rejected as duplicate/filler)
+                # Advance extraction progress marker to the end of this batch
                 conversation.last_extracted_message_id = messages[-1].id
                 self.session.add(conversation)
                 await self.session.commit()
 
+                if len(messages) < message_limit:
+                    break
+
             return created_memories
+
+    async def recover_pending_extractions(
+        self,
+        user_id: Optional[UUID] = None,
+        limit: int = 10,
+    ) -> list[UUID]:
+        """Scan for conversations with unextracted messages and process them sequentially.
+
+        Safe on-demand recovery mechanism that respects tenant isolation, companion state,
+        feature flag, and concurrency locks. Does not run automatically on startup.
+        """
+        if not settings.ENABLE_MEMORY_EXTRACTION:
+            return []
+
+        # Find active conversations for active companions
+        stmt = (
+            select(Conversation)
+            .join(Companion, Companion.id == Conversation.companion_id)
+            .where(
+                Conversation.deleted_at.is_(None),
+                Companion.is_active.is_(True),
+            )
+        )
+        if user_id is not None:
+            stmt = stmt.where(Conversation.user_id == user_id)
+
+        result = await self.session.execute(stmt)
+        conversations = list(result.scalars().all())
+
+        recovered_conversations: list[UUID] = []
+
+        for conv in conversations:
+            if len(recovered_conversations) >= limit:
+                break
+
+            has_pending = False
+            if conv.last_extracted_message_id is None:
+                msg_check = await self.session.execute(
+                    select(Message.id)
+                    .where(Message.conversation_id == conv.id)
+                    .limit(1)
+                )
+                if msg_check.scalar_one_or_none() is not None:
+                    has_pending = True
+            else:
+                cursor_msg = await self.session.get(Message, conv.last_extracted_message_id)
+                if cursor_msg:
+                    msg_check = await self.session.execute(
+                        select(Message.id)
+                        .where(Message.conversation_id == conv.id)
+                        .where(
+                            or_(
+                                Message.created_at > cursor_msg.created_at,
+                                and_(
+                                    Message.created_at == cursor_msg.created_at,
+                                    Message.id > cursor_msg.id,
+                                ),
+                            )
+                        )
+                        .limit(1)
+                    )
+                    if msg_check.scalar_one_or_none() is not None:
+                        has_pending = True
+                else:
+                    has_pending = True
+
+            if has_pending:
+                try:
+                    await self.extract_memories_from_conversation(
+                        user_id=conv.user_id,
+                        conversation_id=conv.id,
+                        companion_id=conv.companion_id,
+                    )
+                    recovered_conversations.append(conv.id)
+                except Exception as e:
+                    logger.warning(
+                        "Recovery failed for conversation %s: %s",
+                        conv.id,
+                        type(e).__name__,
+                    )
+
+        return recovered_conversations
 
 
 # ------------------------------------------------------------------------------

@@ -52,9 +52,13 @@ class MemoryService:
             if not msg or (data.conversation_id and msg.conversation_id != data.conversation_id):
                 raise ValueError("Source message not found or belongs to another conversation")
 
+        # Determine effective sensitivity: logical OR of client-provided flag and deterministic classification
+        content_is_sensitive = is_content_sensitive(data.content)
+        effective_sensitive = bool(data.is_sensitive or content_is_sensitive)
+
         # Determine consent status
-        consent_status = "auto_approved" if not data.is_sensitive else "pending"
-        consent_requested_at = datetime.now(UTC) if data.is_sensitive else None
+        consent_status = "pending" if effective_sensitive else "auto_approved"
+        consent_requested_at = datetime.now(UTC) if effective_sensitive else None
 
         # Only generate embeddings for auto-approved memories; pending memories defer embedding
         embedding_vector: Optional[list[float]] = None
@@ -72,7 +76,7 @@ class MemoryService:
             category=data.category,
             source=data.source,
             confidence=data.confidence,
-            is_sensitive=data.is_sensitive,
+            is_sensitive=effective_sensitive,
             consent_status=consent_status,
             consent_requested_at=consent_requested_at,
             embedding=embedding_vector,

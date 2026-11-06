@@ -1371,3 +1371,470 @@ async def test_message_level_provenance_and_recovery(mock_embedder):
         repeated = await service.extract_memories_from_conversation(user.id, conversation.id)
         assert repeated == []
 
+
+@pytest.mark.asyncio
+async def test_direct_memory_creation_sensitivity_bypass_prevention():
+    """FIX 1 (P0): Direct memory creation through service and REST endpoint enforces deterministic sensitivity."""
+    spy_embedder = SpyEmbeddingProvider()
+
+    async with async_session_maker() as session:
+        user = User(email=f"direct_create_{uuid4()}@example.com", password_hash="hash", full_name="Direct Create")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Direct Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        mem_service = MemoryService(session, embedding_provider=spy_embedder)
+
+        # 1. Medical condition with omitted is_sensitive (defaults to False in MemoryCreate)
+        mem1 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User was diagnosed with Parkinson's disease.",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+        assert mem1.is_sensitive is True
+        assert mem1.consent_status == "pending"
+        assert mem1.embedding is None
+        assert mem1.consent_requested_at is not None
+
+        # 2. Medical condition with explicit is_sensitive=False
+        mem2 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User has a medical diagnosis of stage 2 hypertension.",
+                memory_type="fact",
+                source="user_explicit",
+                is_sensitive=False,
+            ),
+        )
+        assert mem2.is_sensitive is True
+        assert mem2.consent_status == "pending"
+        assert mem2.embedding is None
+
+        # 3. Medication with explicit is_sensitive=False
+        mem3 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User takes 500mg Metformin with breakfast every morning.",
+                memory_type="fact",
+                source="user_explicit",
+                is_sensitive=False,
+            ),
+        )
+        assert mem3.is_sensitive is True
+        assert mem3.consent_status == "pending"
+        assert mem3.embedding is None
+
+        # 4. Mental health condition
+        mem4 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User attends counseling for severe OCD.",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+        assert mem4.is_sensitive is True
+        assert mem4.consent_status == "pending"
+
+        # 5. Financial distress
+        mem5 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User filed for Chapter 7 bankruptcy last year.",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+        assert mem5.is_sensitive is True
+        assert mem5.consent_status == "pending"
+
+        # 6. Credential / Secret
+        mem6 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User's master PIN is 4829.",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+        assert mem6.is_sensitive is True
+        assert mem6.consent_status == "pending"
+
+        # 7. Ordinary harmless preference: auto-approved and embedded
+        mem7 = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User prefers dark roast coffee with a splash of oat milk.",
+                memory_type="preference",
+                source="user_explicit",
+                is_sensitive=False,
+            ),
+        )
+        assert mem7.is_sensitive is False
+        assert mem7.consent_status == "auto_approved"
+        assert mem7.embedding is not None
+
+        # Crucial spy check: exactly 1 embed call occurred across all 7 creations (only mem7)
+        assert len(spy_embedder.embedded_inputs) == 1
+        assert spy_embedder.embedded_inputs[0] == mem7.content
+
+    # 8. REST Endpoint POST /api/v1/memories with diagnosis and is_sensitive=False
+    from fastapi import Depends
+    from app.core.database import get_db
+    from app.services.memory import get_memory_service
+
+    async def override_get_memory_service(s: AsyncSession = Depends(get_db)):
+        return MemoryService(s, embedding_provider=spy_embedder)
+
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_memory_service] = override_get_memory_service
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/memories",
+                json={
+                    "companion_id": str(companion.id),
+                    "content": "User undergoes chemotherapy treatment.",
+                    "memory_type": "fact",
+                    "source": "user_explicit",
+                    "is_sensitive": False,
+                },
+            )
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["is_sensitive"] is True
+            assert body["consent_status"] == "pending"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_extraction_progress_marker_does_not_advance_on_candidate_failure(mock_embedder):
+    """FIX 2 (P1): Candidate processing failure prevents cursor advancement; retry is idempotent."""
+    async with async_session_maker() as session:
+        user = User(email=f"fail_cand_{uuid4()}@example.com", password_hash="hash", full_name="Fail Cand")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conv = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conv)
+        await session.flush()
+
+        msg = Message(conversation_id=conv.id, role="user", content="I live in Seattle and I like jazz.")
+        session.add(msg)
+        await session.commit()
+
+        # LLM extracts 2 candidates
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User lives in Seattle.",
+                    "memory_type": "fact",
+                    "category": "location",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                },
+                {
+                    "content": "User likes jazz.",
+                    "memory_type": "preference",
+                    "category": "music",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                },
+            ]
+        })
+
+        provider = MockExtractionProvider(llm_response)
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        # Intercept _process_candidate to succeed on first candidate and raise unexpected error on second candidate
+        original_process = service._process_candidate
+        call_count = 0
+
+        async def failing_process_candidate(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("Simulated transient DB error during candidate 2")
+            return await original_process(*args, **kwargs)
+
+        service._process_candidate = failing_process_candidate
+
+        # Run extraction: Candidate 1 succeeds, Candidate 2 fails
+        memories = await service.extract_memories_from_conversation(user.id, conv.id)
+        assert len(memories) == 1
+        assert memories[0].content == "User lives in Seattle."
+
+        # Verify cursor did NOT advance past incomplete turn
+        fresh_conv = await session.get(Conversation, conv.id)
+        assert fresh_conv.last_extracted_message_id is None
+
+        # Reset _process_candidate to normal and retry extraction
+        service._process_candidate = original_process
+
+        # Second extraction run: re-evaluates the same turn
+        retried_memories = await service.extract_memories_from_conversation(user.id, conv.id)
+
+        # Only Candidate 2 is newly created; Candidate 1 was deduplicated!
+        assert len(retried_memories) == 1
+        assert retried_memories[0].content == "User likes jazz."
+
+        # Verify exactly 2 active memories in DB for this companion (no duplicates)
+        total_mems = (
+            await session.execute(
+                select(Memory).where(
+                    Memory.user_id == user.id,
+                    Memory.companion_id == companion.id,
+                    Memory.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        assert len(total_mems) == 2
+        contents = {m.content for m in total_mems}
+        assert contents == {"User lives in Seattle.", "User likes jazz."}
+
+        # Verify cursor now advanced to msg.id
+        await session.refresh(fresh_conv)
+        assert fresh_conv.last_extracted_message_id == msg.id
+
+
+@pytest.mark.asyncio
+async def test_contiguous_message_windowing_and_gapless_cursor(mock_embedder):
+    """FIX 3 (P1): Contiguous message windowing processes accumulated messages without skipping."""
+    async with async_session_maker() as session:
+        user = User(email=f"window_{uuid4()}@example.com", password_hash="hash", full_name="Window User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conv = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conv)
+        await session.flush()
+
+        # Add 12 user/assistant messages accumulated over time
+        messages = []
+        for i in range(12):
+            role = "user" if i % 2 == 0 else "assistant"
+            content = f"Turn {i}: user claim about topic {i}" if role == "user" else f"Response {i}"
+            m = Message(conversation_id=conv.id, role=role, content=content)
+            messages.append(m)
+            session.add(m)
+        await session.commit()
+
+        # Custom provider that records each batch prompt sent to LLM
+        class BatchTrackingProvider(MockExtractionProvider):
+            def __init__(self):
+                super().__init__("")
+                self.batches_received: list[str] = []
+
+            async def complete(self, request: CompletionRequest) -> CompletionResponse:
+                prompt = request.messages[0]["content"]
+                self.batches_received.append(prompt)
+                return CompletionResponse(
+                    content=json.dumps({
+                        "candidates": [
+                            {
+                                "content": f"Fact extracted from batch {len(self.batches_received)}.",
+                                "memory_type": "fact",
+                                "category": "general",
+                                "confidence": 0.9,
+                                "is_sensitive": False,
+                            }
+                        ]
+                    }),
+                    model="mock",
+                )
+
+        provider = BatchTrackingProvider()
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        # Execute extraction with message_limit=5
+        # 12 messages with batch size 5 will be processed in 3 contiguous batches:
+        # Batch 1: messages 0..4 (5 messages) -> advances cursor to msg 4
+        # Batch 2: messages 5..9 (5 messages) -> advances cursor to msg 9
+        # Batch 3: messages 10..11 (2 messages) -> advances cursor to msg 11
+        memories = await service.extract_memories_from_conversation(user.id, conv.id, message_limit=5)
+
+        # Exactly 3 batches were sent to the LLM
+        assert len(provider.batches_received) == 3
+        assert len(memories) == 3
+
+        # Final cursor is exactly the last message (messages[11].id)
+        db_conv = await session.get(Conversation, conv.id)
+        assert db_conv.last_extracted_message_id == messages[11].id
+
+        # Calling again returns [] immediately without new LLM calls (caught up)
+        subsequent = await service.extract_memories_from_conversation(user.id, conv.id, message_limit=5)
+        assert subsequent == []
+        assert len(provider.batches_received) == 3
+
+
+@pytest.mark.asyncio
+async def test_cursor_tie_breaking_with_identical_timestamps(mock_embedder):
+    """FIX 3 (P1): Tie-breaking with identical created_at timestamps prevents skipping or re-processing."""
+    async with async_session_maker() as session:
+        user = User(email=f"ties_{uuid4()}@example.com", password_hash="hash", full_name="Tie User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conv = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conv)
+        await session.flush()
+
+        fixed_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        m1 = Message(conversation_id=conv.id, role="user", content="Statement 1", created_at=fixed_time)
+        m2 = Message(conversation_id=conv.id, role="user", content="Statement 2", created_at=fixed_time)
+        m3 = Message(conversation_id=conv.id, role="user", content="Statement 3", created_at=fixed_time)
+        session.add_all([m1, m2, m3])
+        await session.commit()
+
+        # Sort them by (created_at, id) to know the deterministic keyset sequence
+        sorted_messages = sorted([m1, m2, m3], key=lambda m: (m.created_at, m.id))
+
+        class CountingProvider(MockExtractionProvider):
+            def __init__(self):
+                super().__init__("")
+                self.messages_seen: list[UUID] = []
+
+            async def complete(self, request: CompletionRequest) -> CompletionResponse:
+                prompt = request.messages[0]["content"]
+                for m in sorted_messages:
+                    if str(m.id) in prompt and m.id not in self.messages_seen:
+                        self.messages_seen.append(m.id)
+                return CompletionResponse(
+                    content=json.dumps({"candidates": []}),
+                    model="mock",
+                )
+
+        provider = CountingProvider()
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        # Batch size 1: forces 3 single-message batches, all with identical timestamps
+        await service.extract_memories_from_conversation(user.id, conv.id, message_limit=1)
+
+        # All 3 messages were seen in deterministic (created_at, id) order, none skipped
+        assert provider.messages_seen == [m.id for m in sorted_messages]
+
+        db_conv = await session.get(Conversation, conv.id)
+        assert db_conv.last_extracted_message_id == sorted_messages[-1].id
+
+
+@pytest.mark.asyncio
+async def test_source_message_attribution_rejects_assistant_claims(mock_embedder):
+    """Test claim verification: Assistant message ID is rejected as source_message_id and falls back to user."""
+    async with async_session_maker() as session:
+        user = User(email=f"asst_claim_{uuid4()}@example.com", password_hash="hash", full_name="User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conv = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conv)
+        await session.flush()
+
+        user_msg = Message(conversation_id=conv.id, role="user", content="I prefer working remotely.")
+        asst_msg = Message(conversation_id=conv.id, role="assistant", content="Working remotely is nice.")
+        session.add_all([user_msg, asst_msg])
+        await session.commit()
+
+        # Hallucinated candidate citing assistant message ID
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User prefers working remotely.",
+                    "memory_type": "preference",
+                    "category": "work",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                    "source_message_id": str(asst_msg.id),  # Assistant turn cited!
+                }
+            ]
+        })
+        provider = MockExtractionProvider(llm_response)
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        memories = await service.extract_memories_from_conversation(user.id, conv.id)
+        assert len(memories) == 1
+        # Proves: never attributed to assistant message; fallback attributed to user message!
+        assert memories[0].source_message_id == user_msg.id
+        assert memories[0].source_message_id != asst_msg.id
+
+
+@pytest.mark.asyncio
+async def test_recover_pending_extractions_on_demand(mock_embedder):
+    """FIX 4 (P2): recover_pending_extractions safely recovers active unextracted conversations and ignores inactive companions."""
+    async with async_session_maker() as session:
+        user = User(email=f"recov_{uuid4()}@example.com", password_hash="hash", full_name="Recov User")
+        session.add(user)
+        await session.flush()
+
+        active_comp = Companion(user_id=user.id, name="Active", system_prompt="Sys", is_active=True)
+        inactive_comp = Companion(user_id=user.id, name="Inactive", system_prompt="Sys", is_active=False)
+        session.add_all([active_comp, inactive_comp])
+        await session.flush()
+
+        # Conversation 1: Active companion, pending messages
+        conv1 = Conversation(user_id=user.id, companion_id=active_comp.id)
+        # Conversation 2: Inactive companion, pending messages
+        conv2 = Conversation(user_id=user.id, companion_id=inactive_comp.id)
+        session.add_all([conv1, conv2])
+        await session.flush()
+
+        m1 = Message(conversation_id=conv1.id, role="user", content="I enjoy swimming.")
+        m2 = Message(conversation_id=conv2.id, role="user", content="I enjoy running.")
+        session.add_all([m1, m2])
+        await session.commit()
+
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User enjoys swimming.",
+                    "memory_type": "preference",
+                    "category": "sports",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                }
+            ]
+        })
+        provider = MockExtractionProvider(llm_response)
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        recovered = await service.recover_pending_extractions(user_id=user.id, limit=5)
+        # Only active companion's conversation is recovered
+        assert recovered == [conv1.id]
+
+        db_conv1 = await session.get(Conversation, conv1.id)
+        assert db_conv1.last_extracted_message_id == m1.id
+
+        db_conv2 = await session.get(Conversation, conv2.id)
+        assert db_conv2.last_extracted_message_id is None
+
+
