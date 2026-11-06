@@ -108,7 +108,7 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
   })();
 
   // Render static SVG portrait or pre-rendered asset with responsive mouth/aura
-  if (previewUrl && (!config || !config.layers || config.layers.length === 0)) {
+  if (previewUrl) {
     return (
       <div
         className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center bg-slate-900 ${stateAura} ${className}`}

@@ -22,9 +22,15 @@ class VoiceTurnRequest(BaseModel):
     voice: Optional[str] = Field(None, description="Requested TTS voice name")
 
 
+class GreetingRequest(BaseModel):
+    companion_id: UUID = Field(..., description="Target companion ID")
+    conversation_id: Optional[UUID] = Field(None, description="Existing conversation ID if continuing")
+    voice: Optional[str] = Field(None, description="Requested TTS voice name")
+
+
 class VoiceTurnResponse(BaseModel):
     conversation_id: UUID
-    user_message_id: UUID
+    user_message_id: Optional[UUID] = None
     assistant_message_id: UUID
     transcript: str
     reply_text: str
@@ -34,3 +40,4 @@ class VoiceTurnResponse(BaseModel):
     audio_format: str = "audio/wav"
     tts_provider: Optional[str] = "mock"
     model: str
+

@@ -266,8 +266,10 @@ class ConversationService:
         model = companion_llm_config.get("model") or provider.get_default_model()
 
         # 3. Build context for AI (prior messages + current user message)
+        is_voice = getattr(request, "voice_mode", False)
         if conversation:
-            recent_messages = await self.get_recent_messages(conversation.id, limit=20)
+            history_limit = 6 if is_voice else 20
+            recent_messages = await self.get_recent_messages(conversation.id, limit=history_limit)
             messages = [{"role": m.role.value if hasattr(m.role, "value") else m.role, "content": m.content} for m in recent_messages]
         else:
             messages = []
@@ -317,12 +319,23 @@ class ConversationService:
                 type(e).__name__,
             )
 
+        # In voice conversation mode, guide companion to produce concise, natural spoken dialog
+        if is_voice:
+            voice_instructions = (
+                "\n\n[SPOKEN VOICE MODE ACTIVE: You are talking directly through text-to-speech audio with the user. "
+                "Keep your response strictly to 1-3 conversational sentences (maximum 40 words). "
+                "Do NOT write long essays, outlines, or bullet points under any circumstances. "
+                "Be warm, natural, and direct so the user can easily listen to your reply.]"
+            )
+            system_prompt = (system_prompt + voice_instructions).strip()
+
         # 4. Generate AI response (no database locks or open transactions held during LLM call)
+        max_tokens = 60 if is_voice else companion_llm_config.get("max_tokens")
         completion_request = CompletionRequest(
             messages=messages,
             model=model,
             temperature=companion_llm_config.get("temperature", 0.7),
-            max_tokens=companion_llm_config.get("max_tokens"),
+            max_tokens=max_tokens,
             system_prompt=system_prompt,
         )
 

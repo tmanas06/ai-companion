@@ -19,6 +19,7 @@ interface UseLiveVoiceCompanionOptions {
   conversationId?: string | null;
   companionGender?: 'male' | 'female';
   companionName?: string;
+  autoGreet?: boolean;
   onConversationCreated?: (newId: string) => void;
   onError?: (err: string) => void;
 }
@@ -70,6 +71,7 @@ export function useLiveVoiceCompanion({
   conversationId,
   companionGender = 'female',
   companionName,
+  autoGreet = true,
   onConversationCreated,
   onError,
 }: UseLiveVoiceCompanionOptions) {
@@ -78,9 +80,64 @@ export function useLiveVoiceCompanion({
   const [lastCompanionSpeech, setLastCompanionSpeech] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const pendingAudioPlaybackRef = useRef<(() => void) | null>(null);
+  const hasGreetedCompanionRef = useRef<string | null>(null);
   const [voiceSettings, setVoiceSettingsState] = useState<VoiceSettings>(() =>
     loadCompanionVoiceSettings(companionId, companionName, companionGender)
   );
+
+  const [handsFree, setHandsFreeState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('ai_companion_hands_free_mode');
+        if (saved !== null) {
+          return saved === 'true';
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+    return true;
+  });
+  const [isUserSpeaking, setIsUserSpeaking] = useState<boolean>(false);
+
+  const handsFreeRef = useRef<boolean>(handsFree);
+  useEffect(() => {
+    handsFreeRef.current = handsFree;
+  }, [handsFree]);
+
+  const stateRef = useRef<CompanionVoiceState>(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const setHandsFree = useCallback((enabled: boolean) => {
+    setHandsFreeState(enabled);
+    handsFreeRef.current = enabled;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ai_companion_hands_free_mode', String(enabled));
+      } catch (e) {
+        // Ignored
+      }
+    }
+  }, []);
+
+  const toggleHandsFree = useCallback(() => {
+    setHandsFreeState((prev) => {
+      const next = !prev;
+      handsFreeRef.current = next;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ai_companion_hands_free_mode', String(next));
+        } catch (e) {
+          // Ignored
+        }
+      }
+      return next;
+    });
+  }, []);
 
   // Sync settings whenever active companion or gender changes
   useEffect(() => {
@@ -133,6 +190,20 @@ export function useLiveVoiceCompanion({
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSessionIdRef = useRef<number>(0);
 
+  // VAD & Hands-Free conversation state tracking
+  const hasUserSpokenRef = useRef<boolean>(false);
+  const speechStartTimeRef = useRef<number>(0);
+  const lastSpeechTimeRef = useRef<number>(0);
+  const isUserSpeakingRef = useRef<boolean>(false);
+  const listenStartTimeRef = useRef<number>(0);
+  const noiseFloorSamplesRef = useRef<number[]>([]);
+  const autoListenTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const stopListeningRef = useRef<() => void>(() => {});
+  const startListeningRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const liveTranscriptRef = useRef<string>('');
+  const speechRecognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Stop and clean up microphone stream and analysis
   const cleanupMicrophone = useCallback(() => {
     if (animationFrameRef.current) {
@@ -151,29 +222,130 @@ export function useLiveVoiceCompanion({
       }
       audioContextRef.current = null;
     }
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.abort();
+      } catch (e) {
+        // Ignored
+      }
+      speechRecognitionRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     analyserRef.current = null;
     setAudioLevel(0);
+    hasUserSpokenRef.current = false;
+    speechStartTimeRef.current = 0;
+    lastSpeechTimeRef.current = 0;
+    isUserSpeakingRef.current = false;
+    setIsUserSpeaking(false);
+    noiseFloorSamplesRef.current = [];
   }, []);
 
-  // Monitor audio amplitude for animated visualizer/mouth
+  // Monitor audio amplitude for animated visualizer/mouth & voice activity detection (VAD)
   const monitorAudioLevels = useCallback((analyser: AnalyserNode) => {
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const timeDomainData = new Uint8Array(analyser.fftSize);
+    const freqData = new Uint8Array(analyser.frequencyBinCount);
+    noiseFloorSamplesRef.current = [];
+
     const update = () => {
-      analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i] ?? 0;
+      // 1. Time-domain RMS: true acoustic amplitude regardless of frequency
+      analyser.getByteTimeDomainData(timeDomainData);
+      let sumSquares = 0;
+      for (let i = 0; i < timeDomainData.length; i++) {
+        const deviation = ((timeDomainData[i] ?? 128) - 128) / 128.0;
+        sumSquares += deviation * deviation;
       }
-      const avg = sum / dataArray.length;
-      const normalized = Math.min(1.0, avg / 128.0);
-      setAudioLevel(normalized);
+      const rms = Math.sqrt(sumSquares / timeDomainData.length);
+
+      // 2. Frequency-domain speech band energy (first 8 bins focus on fundamental speech 100-3000Hz)
+      analyser.getByteFrequencyData(freqData);
+      let voiceBandSum = 0;
+      const voiceBins = Math.min(8, freqData.length);
+      for (let i = 0; i < voiceBins; i++) {
+        voiceBandSum += freqData[i] ?? 0;
+      }
+      const voiceBandAvg = voiceBins > 0 ? (voiceBandSum / voiceBins) / 255.0 : 0;
+
+      // 3. Composite speech energy
+      const energy = Math.max(rms * 2.8, voiceBandAvg * 1.4);
+      const normalizedForVisualizer = Math.min(1.0, energy * 2.0);
+      setAudioLevel(normalizedForVisualizer);
+
+      // Free-flow hands-free Voice Activity Detection (VAD)
+      if (handsFreeRef.current && stateRef.current === 'listening') {
+        const now = Date.now();
+
+        // Sample initial ambient noise floor across first 20 frames (~300ms)
+        if (noiseFloorSamplesRef.current.length < 20) {
+          noiseFloorSamplesRef.current.push(energy);
+        }
+
+        const ambientAvg =
+          noiseFloorSamplesRef.current.length > 0
+            ? noiseFloorSamplesRef.current.reduce((a, b) => a + b, 0) / noiseFloorSamplesRef.current.length
+            : 0.015;
+        const noiseFloor = Math.min(0.045, Math.max(0.008, ambientAvg));
+        const speechThreshold = Math.max(0.024, noiseFloor * 1.5 + 0.010);
+
+        if (energy >= speechThreshold) {
+          if (!hasUserSpokenRef.current) {
+            hasUserSpokenRef.current = true;
+            speechStartTimeRef.current = now;
+          }
+          lastSpeechTimeRef.current = now;
+          if (!isUserSpeakingRef.current) {
+            isUserSpeakingRef.current = true;
+            setIsUserSpeaking(true);
+          }
+        } else {
+          // Level is below speech threshold (natural pause or silence)
+          if (isUserSpeakingRef.current && now - lastSpeechTimeRef.current > 250) {
+            isUserSpeakingRef.current = false;
+            setIsUserSpeaking(false);
+          }
+
+          // Check if speech has ended and natural silence duration (1200ms) has elapsed
+          if (
+            hasUserSpokenRef.current &&
+            now - speechStartTimeRef.current >= 350 &&
+            now - lastSpeechTimeRef.current >= 1200
+          ) {
+            // User finished speaking! Automatically stop listening and submit voice turn
+            stopListeningRef.current();
+            return;
+          }
+        }
+
+        // Safety maximum turn limit: if user has spoken and 12s total speech elapsed, auto-finalize turn
+        if (hasUserSpokenRef.current && now - speechStartTimeRef.current >= 12000) {
+          stopListeningRef.current();
+          return;
+        }
+
+        // Idle timeout: if 30s elapsed in listening with zero speech, revert to idle to conserve battery
+        if (!hasUserSpokenRef.current && now - listenStartTimeRef.current > 30000) {
+          cleanupMicrophone();
+          setState('idle');
+          return;
+        }
+      }
+
       animationFrameRef.current = requestAnimationFrame(update);
     };
     update();
-  }, []);
+  }, [cleanupMicrophone]);
 
   // Immediate Interruption handler
   const interrupt = useCallback(() => {
+    // 0. Cancel any scheduled auto-listen
+    if (autoListenTimerRef.current) {
+      clearTimeout(autoListenTimerRef.current);
+      autoListenTimerRef.current = null;
+    }
+
     // 1. Invalidate current session token so stale responses cannot play
     activeSessionIdRef.current += 1;
 
@@ -220,11 +392,12 @@ export function useLiveVoiceCompanion({
         return; // Session cancelled/interrupted
       }
 
+      let audio: HTMLAudioElement | null = null;
       try {
         // Convert base64 to audio object
         const mime = audioFormat && audioFormat.includes('/') ? audioFormat : `audio/${audioFormat || 'mpeg'}`;
         const audioSrc = `data:${mime};base64,${audioBase64}`;
-        const audio = new Audio(audioSrc);
+        audio = new Audio(audioSrc);
         activeAudioRef.current = audio;
 
         // Try setting playback rate
@@ -236,7 +409,7 @@ export function useLiveVoiceCompanion({
             setState('speaking');
             setErrorMessage(null);
           } else {
-            audio.pause();
+            audio?.pause();
           }
         };
 
@@ -244,6 +417,14 @@ export function useLiveVoiceCompanion({
           if (sessionId === activeSessionIdRef.current) {
             setState('idle');
             setAudioLevel(0);
+            if (handsFreeRef.current) {
+              if (autoListenTimerRef.current) clearTimeout(autoListenTimerRef.current);
+              autoListenTimerRef.current = setTimeout(() => {
+                if (sessionId === activeSessionIdRef.current && stateRef.current === 'idle' && handsFreeRef.current) {
+                  startListeningRef.current();
+                }
+              }, 450);
+            }
           }
           activeAudioRef.current = null;
         };
@@ -256,9 +437,31 @@ export function useLiveVoiceCompanion({
         };
 
         await audio.play();
-      } catch (e) {
-        // Fallback to browser speech if audio autoplay is restricted or failed
-        playBrowserSpeech(fallbackText, sessionId);
+        setAutoplayBlocked(false);
+      } catch (e: unknown) {
+        const err = e as { name?: string } | null;
+        if (err?.name === 'NotAllowedError') {
+          // Autoplay restricted by browser policy without user gesture
+          setAutoplayBlocked(true);
+          pendingAudioPlaybackRef.current = () => {
+            if (audio) {
+              audio.play().catch(() => playBrowserSpeech(fallbackText, sessionId));
+            } else {
+              playBrowserSpeech(fallbackText, sessionId);
+            }
+          };
+          if (sessionId === activeSessionIdRef.current) {
+            setState('speaking');
+            setTimeout(() => {
+              if (sessionId === activeSessionIdRef.current) {
+                setState((prev) => (prev === 'speaking' ? 'idle' : prev));
+              }
+            }, 3500);
+          }
+        } else {
+          // Fallback to browser speech if audio autoplay is restricted or failed
+          playBrowserSpeech(fallbackText, sessionId);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,6 +532,14 @@ export function useLiveVoiceCompanion({
           if (sessionId === activeSessionIdRef.current) {
             setState('idle');
             setAudioLevel(0);
+            if (handsFreeRef.current) {
+              if (autoListenTimerRef.current) clearTimeout(autoListenTimerRef.current);
+              autoListenTimerRef.current = setTimeout(() => {
+                if (sessionId === activeSessionIdRef.current && stateRef.current === 'idle' && handsFreeRef.current) {
+                  startListeningRef.current();
+                }
+              }, 450);
+            }
           }
           activeUtteranceRef.current = null;
         };
@@ -386,7 +597,8 @@ export function useLiveVoiceCompanion({
           formData.append('text', textQuery);
         }
         if (audioBlob && audioBlob.size > 0) {
-          formData.append('audio_file', audioBlob, 'mic_input.wav');
+          const filename = audioBlob.type.includes('webm') ? 'mic_input.webm' : 'mic_input.wav';
+          formData.append('audio_file', audioBlob, filename);
         }
         if (voiceSettings.voiceName) {
           formData.append('voice', voiceSettings.voiceName);
@@ -430,11 +642,25 @@ export function useLiveVoiceCompanion({
           playBrowserSpeech(replyText, currentSessionId);
         }
       } catch (err: unknown) {
+        console.error('[LiveVoice] submitVoiceTurn error:', err);
         const errorObj = err as { name?: string; message?: string } | null;
-        if (errorObj?.name === 'AbortError' || currentSessionId !== activeSessionIdRef.current) {
-          return; // Interrupted gracefully
+        if (
+          errorObj?.name === 'AbortError' ||
+          controller.signal.aborted ||
+          currentSessionId !== activeSessionIdRef.current ||
+          stateRef.current === 'interrupted' ||
+          errorObj?.message?.toLowerCase().includes('abort') ||
+          errorObj?.message?.toLowerCase().includes('cancel')
+        ) {
+          return; // Interrupted gracefully, do not display error banner
         }
-        const msg = errorObj?.message || 'Failed to communicate with companion';
+
+        let msg = errorObj?.message || 'Failed to communicate with companion';
+        if (msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
+          msg = 'Connection to the companion was interrupted. Tap the mic to try again.';
+        } else if (msg.includes('Not authenticated') || msg.includes('Invalid token') || msg.includes('credentials')) {
+          msg = 'Session expired. Please refresh the page to continue.';
+        }
         setErrorMessage(msg);
         setState('error');
         if (onError) onError(msg);
@@ -445,6 +671,11 @@ export function useLiveVoiceCompanion({
 
   // Start microphone capture
   const startListening = useCallback(async () => {
+    if (autoListenTimerRef.current) {
+      clearTimeout(autoListenTimerRef.current);
+      autoListenTimerRef.current = null;
+    }
+
     // Prevent overlapping sessions
     if (state === 'speaking' || state === 'generating_response' || state === 'processing_speech') {
       interrupt();
@@ -452,7 +683,16 @@ export function useLiveVoiceCompanion({
 
     setErrorMessage(null);
     setState('requesting_microphone');
+    setTranscript('');
     audioChunksRef.current = [];
+    hasUserSpokenRef.current = false;
+    speechStartTimeRef.current = 0;
+    lastSpeechTimeRef.current = 0;
+    isUserSpeakingRef.current = false;
+    setIsUserSpeaking(false);
+    listenStartTimeRef.current = Date.now();
+    noiseFloorSamplesRef.current = [];
+    liveTranscriptRef.current = '';
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -475,12 +715,66 @@ export function useLiveVoiceCompanion({
         audioContextRef.current = ctx;
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.25;
         source.connect(analyser);
         analyserRef.current = analyser;
         monitorAudioLevels(analyser);
       } catch (e) {
         // Visualizer fallback
+      }
+
+      // Initialize Web Speech API if supported by browser for real-time speech transcription
+      if (typeof window !== 'undefined') {
+        const SpeechRec =
+          (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
+          (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition;
+
+        if (SpeechRec) {
+          try {
+            const rec = new SpeechRec();
+            rec.continuous = true;
+            rec.interimResults = true;
+            rec.lang = 'en-US';
+
+            rec.onresult = (event: any) => {
+              let text = '';
+              for (let i = 0; i < event.results.length; i++) {
+                text += event.results[i][0].transcript;
+              }
+              if (text.trim()) {
+                liveTranscriptRef.current = text.trim();
+                setTranscript(text.trim());
+                hasUserSpokenRef.current = true;
+                lastSpeechTimeRef.current = Date.now();
+                if (speechStartTimeRef.current === 0) {
+                  speechStartTimeRef.current = Date.now();
+                }
+                setIsUserSpeaking(true);
+              }
+            };
+
+            rec.onspeechend = () => {
+              if (handsFreeRef.current && hasUserSpokenRef.current) {
+                if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+                silenceTimerRef.current = setTimeout(() => {
+                  if (stateRef.current === 'listening') {
+                    stopListeningRef.current();
+                  }
+                }, 900);
+              }
+            };
+
+            rec.onerror = () => {
+              // Non-blocking fallback to backend faster-whisper
+            };
+
+            rec.start();
+            speechRecognitionRef.current = rec;
+          } catch (e) {
+            // Non-blocking fallback
+          }
+        }
       }
 
       // Initialize MediaRecorder
@@ -499,15 +793,16 @@ export function useLiveVoiceCompanion({
 
       recorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/wav' });
+        const recognizedText = liveTranscriptRef.current || undefined;
         cleanupMicrophone();
 
-        if (blob.size === 0) {
+        if (blob.size === 0 && !recognizedText) {
           setState('idle');
           return;
         }
 
         setState('processing_speech');
-        submitVoiceTurn(blob);
+        submitVoiceTurn(blob, recognizedText);
       };
 
       recorder.start(100);
@@ -533,8 +828,23 @@ export function useLiveVoiceCompanion({
 
   // Stop microphone capture and submit
   const stopListening = useCallback(() => {
+    if (autoListenTimerRef.current) {
+      clearTimeout(autoListenTimerRef.current);
+      autoListenTimerRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    // Guard: Only process stopping when actively listening or requesting mic
+    if (stateRef.current !== 'listening' && stateRef.current !== 'requesting_microphone') {
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       try {
+        setState('processing_speech');
         mediaRecorderRef.current.stop();
       } catch (e) {
         cleanupMicrophone();
@@ -542,7 +852,9 @@ export function useLiveVoiceCompanion({
       }
     } else {
       cleanupMicrophone();
-      setState('idle');
+      if (stateRef.current === 'listening') {
+        setState('idle');
+      }
     }
   }, [cleanupMicrophone]);
 
@@ -564,9 +876,140 @@ export function useLiveVoiceCompanion({
     playBrowserSpeech(lastCompanionSpeech, currentSessionId);
   }, [lastCompanionSpeech, playBrowserSpeech]);
 
+  // Proactively trigger companion opening greeting before user speaks
+  const triggerGreeting = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!companionId) return;
+
+      if (!options?.force && hasGreetedCompanionRef.current === companionId) {
+        return;
+      }
+      hasGreetedCompanionRef.current = companionId;
+
+      const currentSessionId = ++activeSessionIdRef.current;
+      setState('generating_response');
+      setErrorMessage(null);
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      const ARCHETYPE_GREETINGS: Record<string, string> = {
+        aria: "Hello! It's so wonderful to see you. How are you feeling today?",
+        marcus: "Hello. Great to connect with you. What would you like to focus on today?",
+        luna: "Hey there! I'm so excited to chat with you today. What's on your mind?",
+        kai: "Hey! Awesome to meet you. What exciting things are going on today?",
+        nova: "Greetings! It's fantastic to connect. What big ideas are we exploring today?",
+        atlas: "Welcome! I'm glad you're here. Let me know what you'd like to work on together.",
+        sage: "Hello. It's peaceful to be here with you. Take your time, what would you like to reflect on?",
+        maya: "Hi! It's wonderful to meet you. I'm all ears—how can I brighten your day?",
+      };
+
+      const fallbackText =
+        (companionName && ARCHETYPE_GREETINGS[companionName.toLowerCase().trim()]) ||
+        `Hello! I'm ${companionName || 'your companion'}. It's so wonderful to meet you. How are you doing today?`;
+
+      try {
+        const res = await fetch('/api/voice/greeting', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companion_id: companionId,
+            conversation_id: conversationId || undefined,
+            voice: voiceSettings.voiceName,
+          }),
+        });
+
+        if (currentSessionId !== activeSessionIdRef.current) return;
+
+        if (!res.ok) {
+          throw new Error('Greeting request failed');
+        }
+
+        const data = await res.json();
+        if (data.conversation_id && onConversationCreated) {
+          onConversationCreated(data.conversation_id);
+        }
+
+        const greetingSpeech = data.reply_text || fallbackText;
+        setTranscript('');
+        setLastCompanionSpeech(greetingSpeech);
+        setErrorMessage(null);
+
+        if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
+          playAssistantAudio(data.audio_base64, greetingSpeech, currentSessionId, data.audio_format || 'audio/mpeg');
+        } else {
+          playBrowserSpeech(greetingSpeech, currentSessionId);
+        }
+      } catch (err: unknown) {
+        const errorObj = err as { name?: string; message?: string } | null;
+        if (
+          errorObj?.name === 'AbortError' ||
+          controller.signal.aborted ||
+          currentSessionId !== activeSessionIdRef.current ||
+          errorObj?.message?.toLowerCase().includes('abort')
+        ) {
+          return;
+        }
+
+        // Instant fallback: avatar greets and speaks in character without delay
+        setTranscript('');
+        setLastCompanionSpeech(fallbackText);
+        setErrorMessage(null);
+        playBrowserSpeech(fallbackText, currentSessionId);
+      }
+    },
+    [companionId, conversationId, companionName, onConversationCreated, playAssistantAudio, playBrowserSpeech, voiceSettings]
+  );
+
+  // Resume/unblock audio when browser autoplay policy requires user interaction
+  const resumeAudio = useCallback(() => {
+    setAutoplayBlocked(false);
+    if (pendingAudioPlaybackRef.current) {
+      const play = pendingAudioPlaybackRef.current;
+      pendingAudioPlaybackRef.current = null;
+      play();
+    }
+  }, []);
+
+  // One-time interaction listener to unblock audio on first user touch/click/keypress
+  useEffect(() => {
+    if (!autoplayBlocked) return;
+    const handleInteraction = () => {
+      resumeAudio();
+    };
+    window.addEventListener('click', handleInteraction, { once: true });
+    window.addEventListener('keydown', handleInteraction, { once: true });
+    window.addEventListener('touchstart', handleInteraction, { once: true });
+    return () => {
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('keydown', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+    };
+  }, [autoplayBlocked, resumeAudio]);
+
+  // Proactively trigger companion greeting when companion is ready
+  useEffect(() => {
+    if (autoGreet && companionId) {
+      triggerGreeting();
+    }
+  }, [autoGreet, companionId, triggerGreeting]);
+
+  // Keep refs in sync for recursive event loops
+  useEffect(() => {
+    stopListeningRef.current = stopListening;
+  }, [stopListening]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (autoListenTimerRef.current) {
+        clearTimeout(autoListenTimerRef.current);
+      }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -589,10 +1032,17 @@ export function useLiveVoiceCompanion({
     voiceSettings,
     setVoiceSettings,
     availableVoices,
+    autoplayBlocked,
+    resumeAudio,
+    triggerGreeting,
     replaySpeech,
     startListening,
     stopListening,
     interrupt,
     submitText,
+    handsFree,
+    setHandsFree,
+    toggleHandsFree,
+    isUserSpeaking,
   };
 }

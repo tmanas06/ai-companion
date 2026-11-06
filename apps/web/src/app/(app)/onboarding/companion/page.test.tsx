@@ -124,4 +124,40 @@ describe('OnboardingCompanionPage', () => {
     // Only one POST call should have been dispatched
     expect(callCount).toBe(1);
   });
+
+  it('allows selecting avatar preset by clicking the preset card directly in Step 1', async () => {
+    render(<OnboardingCompanionPage />);
+
+    // Click Luna's preset card directly
+    const lunaCard = screen.getByRole('button', { name: /select luna avatar preset/i });
+    expect(lunaCard).toBeInTheDocument();
+    fireEvent.click(lunaCard);
+
+    // Should navigate to Step 2
+    expect(await screen.findByRole('button', { name: /review & meet/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /luna/i })).toBeInTheDocument();
+    expect(screen.getAllByAltText('Luna').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('allows switching avatar presets directly in Step 2 Appearance tab', async () => {
+    render(<OnboardingCompanionPage />);
+
+    // Start with Luna
+    const lunaCard = screen.getByRole('button', { name: /select luna avatar preset/i });
+    fireEvent.click(lunaCard);
+
+    // In Step 2 Appearance tab, verify "Choose Avatar Preset" gallery is visible
+    expect(screen.getByText('Choose Avatar Preset')).toBeInTheDocument();
+
+    // Click Marcus in the Step 2 preset switcher
+    const marcusButtons = screen.getAllByRole('button').filter(
+      (btn) => btn.textContent?.includes('Marcus')
+    );
+    expect(marcusButtons.length).toBeGreaterThan(0);
+    fireEvent.click(marcusButtons[0]!);
+
+    // Current preset portrait should now display Marcus
+    expect(screen.getByRole('heading', { level: 2, name: /marcus/i })).toBeInTheDocument();
+    expect(screen.getAllByAltText('Marcus').length).toBeGreaterThanOrEqual(1);
+  });
 });

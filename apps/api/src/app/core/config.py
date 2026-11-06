@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "RS256"
     JWT_PRIVATE_KEY_PATH: str = "./keys/jwt_private.pem"
     JWT_PUBLIC_KEY_PATH: str = "./keys/jwt_public.pem"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000", "http://localhost:3001", "http://localhost:8081"])
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     ANTHROPIC_DEFAULT_MODEL: str = "claude-3-haiku-20240307"
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_DEFAULT_MODEL: str = "llama3.1:8b"
+    OLLAMA_DEFAULT_MODEL: str = "qwen2.5:3b"
 
     EMBEDDING_PROVIDER: str | None = Field(
         default=None,
@@ -102,6 +102,9 @@ class Settings(BaseSettings):
 
     TTS_PROVIDER: str = "edge-tts"
     TTS_VOICE: str = "en-US-JennyNeural"
+
+    STT_PROVIDER: str = "faster-whisper"
+    STT_MODEL: str = "tiny.en"
 
 
 @lru_cache

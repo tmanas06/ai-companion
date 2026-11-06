@@ -74,6 +74,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[UUID] = None
     companion_id: Optional[UUID] = None
     stream: bool = False
+    voice_mode: bool = False
 
 
 class ChatResponse(BaseModel):

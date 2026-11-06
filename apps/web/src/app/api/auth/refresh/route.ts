@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 15, // 15 minutes
+      maxAge: 60 * 60 * 24 * 7, // 7 days
     });
     
     response_.cookies.set('refresh_token', data.refresh_token, {

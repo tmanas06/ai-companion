@@ -1,7 +1,5 @@
-/**
- * Conversations API proxy - forwards requests to FastAPI backend.
- */
 import { NextRequest, NextResponse } from 'next/server';
+import { getOrRefreshAccessToken, setAuthCookies } from '@/lib/server-auth';
 
 const API_BASE = process.env["API_BASE_URL"] || 'http://localhost:8000';
 
@@ -10,21 +8,43 @@ async function forwardRequest(
   path: string,
   init: RequestInit = {}
 ) {
-  const accessToken = request.cookies.get('access_token')?.value;
+  let auth = await getOrRefreshAccessToken(request);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(init.headers as Record<string, string>),
   };
 
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+  if (auth?.accessToken) {
+    headers['Authorization'] = `Bearer ${auth.accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE}/api/v1/conversations${path}`, {
+  let response = await fetch(`${API_BASE}/api/v1/conversations${path}`, {
     ...init,
     headers,
   });
+
+  if (response.status === 401 && request.cookies.get('refresh_token')?.value) {
+    const refreshToken = request.cookies.get('refresh_token')!.value;
+    const refreshRes = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (refreshRes.ok) {
+      const refreshData = await refreshRes.json();
+      auth = {
+        accessToken: refreshData.access_token,
+        refreshToken: refreshData.refresh_token,
+        isRefreshed: true,
+      };
+      headers['Authorization'] = `Bearer ${auth.accessToken}`;
+      response = await fetch(`${API_BASE}/api/v1/conversations${path}`, {
+        ...init,
+        headers,
+      });
+    }
+  }
 
   const data = await response.json().catch(() => ({}));
 
@@ -35,7 +55,8 @@ async function forwardRequest(
     );
   }
 
-  return NextResponse.json(data);
+  const nextRes = NextResponse.json(data);
+  return setAuthCookies(nextRes, auth);
 }
 
 export async function GET(request: NextRequest) {

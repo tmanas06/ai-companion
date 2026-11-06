@@ -18,13 +18,14 @@ import {
 function OnboardingCompanionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const editId = searchParams?.get('editId');
-  const presetId = searchParams?.get('presetId');
+  const editId = searchParams?.get('editId') || searchParams?.get('edit');
+  const presetId = searchParams?.get('presetId') || searchParams?.get('preset');
   const { user, isLoading: authLoading } = useAuth();
 
   // Wizard steps: 1 = choose preset / create own, 2 = customize appearance & personality, 3 = meet
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('all');
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(presetId || 'luna');
 
   // Companion form state
   const [companionName, setCompanionName] = useState('Luna');
@@ -87,6 +88,12 @@ function OnboardingCompanionContent() {
               }
               if (data.personality.avatar_preview_url) {
                 setPreviewUrl(data.personality.avatar_preview_url);
+                const matched = COMPANION_PRESETS.find(
+                  (p) => p.previewUrl === data.personality.avatar_preview_url
+                );
+                if (matched) {
+                  setSelectedPresetId(matched.id);
+                }
               }
             }
             setStep(2);
@@ -101,8 +108,9 @@ function OnboardingCompanionContent() {
     }
   }, [editId, presetId, user]);
 
-  // Preset Selection handler
+  // Preset Selection handler (enters personalization step)
   function handleSelectPreset(preset: CompanionPreset) {
+    setSelectedPresetId(preset.id);
     setCompanionName(preset.name);
     setCompanionBio(preset.bio);
     setSelectedStyle(preset.style);
@@ -113,8 +121,30 @@ function OnboardingCompanionContent() {
     setStep(2);
   }
 
+  // Switch avatar preset while remaining in personalization step
+  function handleSwitchAvatarPreset(preset: CompanionPreset) {
+    setSelectedPresetId(preset.id);
+    setSelectedStyle(preset.style);
+    setPreviewUrl(preset.previewUrl);
+    setAvatarConfig(JSON.parse(JSON.stringify(preset.config)));
+    setGender(preset.gender || 'female');
+
+    // Only update name and bio if current name matches one of the preset default names or is empty
+    const isDefaultName =
+      COMPANION_PRESETS.some(
+        (p) => p.name.toLowerCase() === companionName.toLowerCase().trim()
+      ) || !companionName.trim();
+
+    if (isDefaultName) {
+      setCompanionName(preset.name);
+      setCompanionBio(preset.bio);
+      setSelectedTraits([...preset.traits]);
+    }
+  }
+
   // Create your own from scratch
   function handleCreateOwn() {
+    setSelectedPresetId(null);
     setCompanionName('Nova');
     setCompanionBio('A newly designed AI companion ready to explore life and deep conversations.');
     setSelectedStyle('anime');
@@ -150,6 +180,7 @@ function OnboardingCompanionContent() {
 
   // Appearance Layer update
   function updateLayer(type: 'skin' | 'eyes' | 'hair' | 'clothing' | 'accessory' | 'background', updates: Partial<AvatarConfig['layers'][0]>) {
+    setSelectedPresetId(null); // Switch to custom layer composition
     setPreviewUrl(null); // Switch to dynamic SVG layered rendering on custom tweak
     setAvatarConfig((prev) => {
       const existing = prev.layers.find((l) => l.type === type);
@@ -377,62 +408,100 @@ function OnboardingCompanionContent() {
               </div>
 
               {/* Preset Cards */}
-              {filteredPresets.map((preset) => (
-                <div
-                  key={preset.id}
-                  className="group relative bg-slate-900/90 border border-slate-800 hover:border-indigo-500/50 rounded-3xl overflow-hidden shadow-xl hover:shadow-2xl hover:shadow-indigo-500/10 transition-all duration-300 flex flex-col"
-                >
-                  {/* Portrait Container */}
-                  <div className="relative aspect-square w-full bg-slate-950 overflow-hidden">
-                    <AvatarRenderer
-                      previewUrl={preset.previewUrl}
-                      name={preset.name}
-                      size="100%"
-                      className="rounded-none h-full"
-                    />
-                    <div className="absolute top-3 right-3">
-                      <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full bg-slate-950/80 border border-slate-700/80 text-indigo-300 backdrop-blur-md">
-                        {preset.style}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Details */}
-                  <div className="p-5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
-                        {preset.name}
-                      </h3>
-                      <p className="text-xs text-indigo-400/90 font-medium mt-0.5">
-                        {preset.tagline}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">
-                        {preset.bio}
-                      </p>
-
-                      {/* Traits Chips */}
-                      <div className="flex flex-wrap gap-1.5 mt-3.5">
-                        {preset.traits.map((trait) => (
-                          <span
-                            key={trait}
-                            className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-medium"
-                          >
-                            {trait}
+              {filteredPresets.map((preset) => {
+                const isSelected = selectedPresetId === preset.id;
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() => handleSelectPreset(preset)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectPreset(preset);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Select ${preset.name} avatar preset`}
+                    className={cn(
+                      'group relative bg-slate-900/90 border rounded-3xl overflow-hidden shadow-xl hover:shadow-2xl transition-all duration-300 flex flex-col cursor-pointer select-none',
+                      isSelected
+                        ? 'border-indigo-500 ring-2 ring-indigo-500/50 shadow-indigo-500/20'
+                        : 'border-slate-800 hover:border-indigo-500/50 hover:shadow-indigo-500/10'
+                    )}
+                  >
+                    {/* Portrait Container */}
+                    <div className="relative aspect-square w-full bg-slate-950 overflow-hidden">
+                      <AvatarRenderer
+                        previewUrl={preset.previewUrl}
+                        name={preset.name}
+                        size="100%"
+                        className="rounded-none h-full"
+                      />
+                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                        {isSelected && (
+                          <span className="px-2.5 py-1 text-[10px] font-bold tracking-wider rounded-full bg-indigo-600 text-white shadow-md flex items-center gap-1">
+                            <span>✓</span>
+                            <span>Selected</span>
                           </span>
-                        ))}
+                        )}
+                        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full bg-slate-950/80 border border-slate-700/80 text-indigo-300 backdrop-blur-md">
+                          {preset.style}
+                        </span>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleSelectPreset(preset)}
-                      className="mt-5 w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <span>Choose & Personalize</span>
-                      <span className="text-sm">→</span>
-                    </button>
+                    {/* Details */}
+                    <div className="p-5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
+                            {preset.name}
+                          </h3>
+                          <span className="text-[10px] text-slate-400 capitalize px-2 py-0.5 rounded-full bg-slate-800">
+                            {preset.gender}
+                          </span>
+                        </div>
+                        <p className="text-xs text-indigo-400/90 font-medium mt-0.5">
+                          {preset.tagline}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">
+                          {preset.bio}
+                        </p>
+
+                        {/* Traits Chips */}
+                        <div className="flex flex-wrap gap-1.5 mt-3.5">
+                          {preset.traits.map((trait) => (
+                            <span
+                              key={trait}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-medium"
+                            >
+                              {trait}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectPreset(preset);
+                        }}
+                        className={cn(
+                          'mt-5 w-full py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 shadow-sm',
+                          isSelected
+                            ? 'bg-indigo-600 text-white shadow-indigo-600/30'
+                            : 'bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white'
+                        )}
+                      >
+                        <span>{isSelected ? 'Selected — Personalize' : 'Choose & Personalize'}</span>
+                        <span className="text-sm">→</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -474,7 +543,35 @@ function OnboardingCompanionContent() {
                   />
                 </div>
 
-                <div className="mt-4 text-center max-w-[320px]">
+                <div className="mt-3 flex items-center justify-center gap-2">
+                  {previewUrl ? (
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-950/70 border border-emerald-800/60 text-emerald-300 text-[11px] font-medium flex items-center gap-1.5 shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Preset Portrait Active
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-full bg-amber-950/70 border border-amber-800/60 text-amber-300 text-[11px] font-medium flex items-center gap-1.5 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        Custom Vector Mode
+                      </span>
+                      {selectedPresetId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const match = COMPANION_PRESETS.find((p) => p.id === selectedPresetId);
+                            if (match) setPreviewUrl(match.previewUrl);
+                          }}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium"
+                        >
+                          Reset to Portrait
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 text-center max-w-[320px]">
                   <h2 className="text-2xl font-bold text-white flex items-center justify-center gap-2">
                     {companionName || 'Unnamed'}
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 font-semibold border border-indigo-700/50 uppercase">
@@ -529,28 +626,114 @@ function OnboardingCompanionContent() {
                 {/* Subtab 1: Appearance */}
                 {activeCustomizeSubtab === 'appearance' && (
                   <div className="space-y-6">
-                    {/* Avatar Style Selector */}
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                        Avatar Art Style
-                      </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {(['photorealistic', 'anime', '3d', 'illustrated'] as const).map((style) => (
+                    {/* Avatar Preset Characters Selector */}
+                    <div className="bg-slate-950/70 p-4 rounded-2xl border border-slate-800/80">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                            Choose Avatar Preset
+                          </label>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Switch directly to any avatar character or filter by style
+                          </p>
+                        </div>
+                        <span className="text-[11px] text-indigo-400 font-semibold px-2 py-0.5 rounded-md bg-indigo-950/80 border border-indigo-800/50">
+                          {selectedPresetId
+                            ? COMPANION_PRESETS.find((p) => p.id === selectedPresetId)?.name || 'Custom Preset'
+                            : 'Custom Vector'}
+                        </span>
+                      </div>
+
+                      {/* Style Filter Pills */}
+                      <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1 scrollbar-none">
+                        {AVATAR_STYLES.map((style) => (
                           <button
-                            key={style}
-                            onClick={() => setSelectedStyle(style)}
+                            key={style.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedStyleFilter(style.id);
+                              if (style.id !== 'all') {
+                                setSelectedStyle(style.id as 'photorealistic' | 'anime' | '3d' | 'illustrated');
+                              }
+                            }}
                             className={cn(
-                              'py-2 px-3 rounded-xl border text-xs font-semibold capitalize transition-all',
-                              selectedStyle === style
-                                ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-sm'
-                                : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                              'px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all',
+                              selectedStyleFilter === style.id
+                                ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400/40'
+                                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
                             )}
                           >
-                            {style}
+                            {style.label}
                           </button>
                         ))}
                       </div>
+
+                      {/* Character Cards Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {filteredPresets.map((preset) => {
+                          const isSelected = selectedPresetId === preset.id && previewUrl === preset.previewUrl;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => handleSwitchAvatarPreset(preset)}
+                              className={cn(
+                                'p-2 rounded-2xl border text-left transition-all duration-200 flex flex-col items-center group relative overflow-hidden select-none',
+                                isSelected
+                                  ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/50 shadow-md shadow-indigo-600/20'
+                                  : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
+                              )}
+                            >
+                              <div className="w-full aspect-square rounded-xl overflow-hidden mb-2 bg-slate-950 relative">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={preset.previewUrl}
+                                  alt={preset.name}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                />
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold shadow-md">
+                                    ✓
+                                  </div>
+                                )}
+                                <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-black/75 text-indigo-300 backdrop-blur-sm">
+                                  {preset.style}
+                                </span>
+                              </div>
+                              <div className="w-full text-center">
+                                <div className="font-bold text-xs text-white truncate">{preset.name}</div>
+                                <div className="text-[10px] text-slate-400 capitalize">{preset.gender}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    {/* Fine-Tuning Layer Details */}
+                    <div className="pt-2 border-t border-slate-800/80 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                            🎨 Fine-Tune Layers & Palette
+                          </label>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Adjusting these switches the preview to customizable vector layer mode
+                          </p>
+                        </div>
+                        {!previewUrl && selectedPresetId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const match = COMPANION_PRESETS.find((p) => p.id === selectedPresetId);
+                              if (match) setPreviewUrl(match.previewUrl);
+                            }}
+                            className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium"
+                          >
+                            Revert to Preset Portrait
+                          </button>
+                        )}
+                      </div>
 
                     {/* Skin Tone */}
                     <div>
@@ -689,7 +872,8 @@ function OnboardingCompanionContent() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
                 {/* Subtab 2: Personality & Identity */}
                 {activeCustomizeSubtab === 'personality' && (

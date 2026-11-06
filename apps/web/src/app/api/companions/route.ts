@@ -2,22 +2,47 @@
  * Companions API proxy.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { getOrRefreshAccessToken, setAuthCookies } from '@/lib/server-auth';
 
 export async function GET(request: NextRequest) {
-  const accessToken = request.cookies.get('access_token')?.value;
+  let auth = await getOrRefreshAccessToken(request);
   
-  if (!accessToken) {
+  if (!auth?.accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 
   try {
-    const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
+    let response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${auth.accessToken}`,
         'Content-Type': 'application/json',
       },
     });
+
+    if (response.status === 401 && request.cookies.get('refresh_token')?.value) {
+      const refreshToken = request.cookies.get('refresh_token')!.value;
+      const refreshRes = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        auth = {
+          accessToken: refreshData.access_token,
+          refreshToken: refreshData.refresh_token,
+          isRefreshed: true,
+        };
+        response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${auth.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+    }
 
     const contentType = response.headers.get('content-type') || '';
     let data: Record<string, unknown> | null = null;
@@ -31,7 +56,8 @@ export async function GET(request: NextRequest) {
     if (data && Array.isArray(data['items']) && !data['companions']) {
       data['companions'] = data['items'];
     }
-    return NextResponse.json(data, { status: response.status });
+    const nextRes = NextResponse.json(data, { status: response.status });
+    return setAuthCookies(nextRes, auth);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to fetch companions';
     return NextResponse.json({ detail: message }, { status: 500 });
@@ -39,9 +65,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const accessToken = request.cookies.get('access_token')?.value;
+  let auth = await getOrRefreshAccessToken(request);
   
-  if (!accessToken) {
+  if (!auth?.accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
   }
 

@@ -17,6 +17,7 @@ from fastapi import (
 from app.core.security import get_current_user
 from app.models import User
 from app.schemas.voice import (
+    GreetingRequest,
     SynthesizeRequest,
     TranscribeResponse,
     VoiceTurnRequest,
@@ -158,3 +159,29 @@ async def voice_turn_json(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Voice turn processing failed: {e}",
         )
+
+
+@router.post("/greeting", response_model=VoiceTurnResponse)
+async def voice_greeting(
+    request: GreetingRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    service: VoiceService = Depends(get_voice_service),
+):
+    """Trigger companion's proactive in-character opening greeting before user speaks."""
+    try:
+        return await service.execute_greeting(
+            user_id=current_user.id,
+            companion_id=request.companion_id,
+            conversation_id=request.conversation_id,
+            voice=request.voice,
+            background_tasks=background_tasks,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Greeting failed: {e}",
+        )
+

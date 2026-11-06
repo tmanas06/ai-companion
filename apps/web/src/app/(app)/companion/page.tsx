@@ -190,24 +190,22 @@ export default function CompanionPage() {
                     <div>
                       {/* Avatar preview */}
                       <div className="relative w-full h-48 rounded-xl overflow-hidden mb-4 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                        {avatarConfig ? (
-                          <div className="w-40 h-40">
-                            <AvatarRenderer config={avatarConfig} size={160} />
+                        {personality.avatar_preview_url || avatarConfig ? (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <AvatarRenderer
+                              previewUrl={personality.avatar_preview_url as string}
+                              config={avatarConfig}
+                              name={comp.name}
+                              size="100%"
+                            />
                           </div>
-                        ) : personality.avatar_preview_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={personality.avatar_preview_url as string}
-                            alt={comp.name}
-                            className="w-full h-full object-cover object-center"
-                          />
                         ) : (
                           <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-600 dark:text-primary-400 flex items-center justify-center text-3xl font-bold">
                             {comp.name.charAt(0)}
                           </div>
                         )}
 
-                        <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-black/60 backdrop-blur-md text-white capitalize">
+                        <span className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-black/60 backdrop-blur-md text-white capitalize z-10">
                           {style}
                         </span>
                       </div>
@@ -330,9 +328,10 @@ export default function CompanionPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {filteredPresets.map((preset: CompanionPreset) => (
-              <div
+              <Link
                 key={preset.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-lg transition-all group flex flex-col justify-between"
+                href={`/onboarding/companion?presetId=${preset.id}`}
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-lg hover:border-primary-500/50 transition-all group flex flex-col justify-between cursor-pointer"
               >
                 <div>
                   <div className="relative h-56 bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -348,7 +347,7 @@ export default function CompanionPage() {
                   </div>
 
                   <div className="p-4">
-                    <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    <h3 className="font-bold text-slate-900 dark:text-white text-base group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                       {preset.name}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
@@ -369,17 +368,14 @@ export default function CompanionPage() {
                 </div>
 
                 <div className="p-4 pt-0">
-                  <Link
-                    href={`/onboarding/companion?presetId=${preset.id}`}
-                    className="w-full py-2 px-3 text-center rounded-xl bg-slate-100 hover:bg-primary-600 hover:text-white dark:bg-slate-800 dark:hover:bg-primary-600 text-slate-900 dark:text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5"
-                  >
+                  <div className="w-full py-2 px-3 text-center rounded-xl bg-slate-100 group-hover:bg-primary-600 group-hover:text-white dark:bg-slate-800 dark:group-hover:bg-primary-600 text-slate-900 dark:text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5">
                     Personalize {preset.name}
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                  </Link>
+                  </div>
                 </div>
-              </div>
+              </Link>
             ))}
 
             {/* Customizer card */}

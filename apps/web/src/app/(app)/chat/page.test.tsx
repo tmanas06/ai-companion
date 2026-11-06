@@ -71,6 +71,19 @@ describe('Voice-First Live Companion Page', () => {
           json: async () => ({ messages: [] }),
         });
       }
+      if (url === '/api/voice/greeting') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation_id: 'conv-1',
+            reply_text: 'Hi! It is wonderful to meet you. How can I brighten your day?',
+            companion_id: 'comp-1',
+            companion_name: 'Maya',
+            audio_base64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
+            audio_format: 'wav',
+          }),
+        });
+      }
       if (url === '/api/voice/turn') {
         return Promise.resolve({
           ok: true,
@@ -88,7 +101,18 @@ describe('Voice-First Live Companion Page', () => {
     });
   });
 
-  it('renders the dedicated live companion experience without text chat bubbles or composer', async () => {
+  async function ensureReadyToTalk() {
+    await screen.findByText('Maya');
+    const interruptBtn = screen.queryByTitle('Interrupt speech');
+    if (interruptBtn) {
+      await act(async () => {
+        fireEvent.click(interruptBtn);
+      });
+    }
+    return await screen.findByTitle('Tap or hold to speak');
+  }
+
+  it('renders the dedicated live companion experience and causes avatar to speak first', async () => {
     render(<ChatPage />);
 
     // Companion name and personality badges should display
@@ -96,15 +120,12 @@ describe('Voice-First Live Companion Page', () => {
     expect(screen.getByText('anime')).toBeInTheDocument();
     expect(screen.getByText(/• Warm/i)).toBeInTheDocument();
 
-    // Default status should be Ready to talk
-    expect(screen.getAllByText('Ready to talk').length).toBeGreaterThan(0);
-
-    // Primary Microphone button should be present
-    const micButton = screen.getByTitle('Tap or hold to speak');
-    expect(micButton).toBeInTheDocument();
-
-    // Instructions should mention voice/spacebar
-    expect(screen.getByText(/Tap the microphone or hold/i)).toBeInTheDocument();
+    // Proactive opening speech by avatar is displayed or in speaking state
+    await waitFor(() => {
+      const isSpeaking = screen.queryByText('Speaking...') !== null;
+      const hasGreeting = screen.queryByText(/It is wonderful to meet you|brighten your day/i) !== null;
+      expect(isSpeaking || hasGreeting).toBe(true);
+    });
 
     // Crucial requirement: NO text message composer, send button, or chat timeline
     expect(screen.queryByPlaceholderText('Type a message...')).not.toBeInTheDocument();
@@ -131,17 +152,15 @@ describe('Voice-First Live Companion Page', () => {
     fireEvent.click(marcusBtn);
 
     // Header updates to Marcus
-    expect(screen.getByText('Marcus')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /marcus/i })).toBeInTheDocument();
     expect(screen.getByText('photorealistic')).toBeInTheDocument();
   });
 
   it('transitions state through listening and generates response on mic interaction', async () => {
     render(<ChatPage />);
 
-    // Ensure companion is loaded
-    await screen.findByText('Maya');
-
-    const micButton = screen.getByTitle('Tap or hold to speak');
+    // Ensure companion is loaded and ready
+    const micButton = await ensureReadyToTalk();
 
     // Click microphone to start listening
     await act(async () => {
@@ -173,10 +192,8 @@ describe('Voice-First Live Companion Page', () => {
   it('handles user interruption cleanly during speech', async () => {
     render(<ChatPage />);
 
-    // Ensure companion is loaded
-    await screen.findByText('Maya');
-
-    const micButton = screen.getByTitle('Tap or hold to speak');
+    // Ensure companion is loaded and ready
+    const micButton = await ensureReadyToTalk();
 
     // Start and stop listening to trigger speech turn
     await act(async () => {
@@ -213,9 +230,7 @@ describe('Voice-First Live Companion Page', () => {
 
     render(<ChatPage />);
 
-    await screen.findByText('Maya');
-
-    const micButton = screen.getByTitle('Tap or hold to speak');
+    const micButton = await ensureReadyToTalk();
 
     await act(async () => {
       fireEvent.click(micButton);
@@ -249,5 +264,49 @@ describe('Voice-First Live Companion Page', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Speech Output Engine/i)).not.toBeInTheDocument();
     });
+  });
+
+  it('renders free-flow voice toggle and allows switching between continuous hands-free talking and push-to-talk', async () => {
+    render(<ChatPage />);
+
+    await screen.findByText('Maya');
+
+    // Free-flow toggle button is rendered and defaults to ON
+    const toggleBtn = await screen.findByRole('button', { name: /Free-Flow Voice: ON/i });
+    expect(toggleBtn).toBeInTheDocument();
+    expect(screen.getByText('(Hands-Free)')).toBeInTheDocument();
+
+    // Clicking toggle switches mode to OFF (Push-to-Talk)
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+
+    expect(await screen.findByRole('button', { name: /Free-Flow Voice: OFF/i })).toBeInTheDocument();
+    expect(screen.getByText('(Push-to-Talk)')).toBeInTheDocument();
+    expect(localStorage.getItem('ai_companion_hands_free_mode')).toBe('false');
+
+    // Clicking again switches back to ON
+    const offBtn = screen.getByRole('button', { name: /Free-Flow Voice: OFF/i });
+    await act(async () => {
+      fireEvent.click(offBtn);
+    });
+
+    expect(await screen.findByRole('button', { name: /Free-Flow Voice: ON/i })).toBeInTheDocument();
+    expect(localStorage.getItem('ai_companion_hands_free_mode')).toBe('true');
+  });
+
+  it('automatically re-arms listening after companion finishes speaking in free-flow mode', async () => {
+    render(<ChatPage />);
+
+    await screen.findByText('Maya');
+
+    // After companion's opening greeting audio finishes playing,
+    // Free-Flow automatically transitions the companion to Listening without user clicking mic!
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('Listening...').length).toBeGreaterThan(0);
+      },
+      { timeout: 2000 }
+    );
   });
 });

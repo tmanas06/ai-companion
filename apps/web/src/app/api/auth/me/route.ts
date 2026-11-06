@@ -2,22 +2,23 @@
  * Get current user endpoint - proxies to FastAPI backend with auth cookie.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { getOrRefreshAccessToken, setAuthCookies } from '@/lib/server-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const accessToken = request.cookies.get('access_token')?.value;
+    let auth = await getOrRefreshAccessToken(request);
     
-    if (!accessToken) {
+    if (!auth?.accessToken) {
       return NextResponse.json(
         { detail: 'Not authenticated' },
         { status: 401 }
       );
     }
     
-    const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/me`, {
+    let response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/auth/me`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${auth.accessToken}`,
         'Content-Type': 'application/json',
       },
     });

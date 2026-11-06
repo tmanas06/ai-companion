@@ -1,6 +1,7 @@
 """Tests for local voice orchestration, STT, TTS, and turn-taking APIs."""
 
 import io
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -240,4 +241,59 @@ def test_edge_tts_provider_resolution():
     assert provider.resolve_voice("en-US-BrianNeural") == "en-US-BrianNeural"
     assert provider.resolve_voice("unknown male character") == "en-US-GuyNeural"
     assert provider.resolve_voice("unknown female character") == "en-US-JennyNeural"
+
+
+@pytest.mark.asyncio
+async def test_voice_greeting_orchestration():
+    user_id = uuid4()
+    companion_id = uuid4()
+    conv_id = uuid4()
+    mock_comp = SimpleNamespace(
+        id=companion_id,
+        name="Luna",
+        user_id=user_id,
+        is_active=True,
+    )
+    mock_conv = SimpleNamespace(id=conv_id)
+    added_messages = []
+
+    class MockConvService:
+        async def get_conversation(self, uid, cid):
+            return mock_conv
+
+        async def get_recent_messages(self, cid, limit=5):
+            return []
+
+        async def add_message(self, cid, data):
+            msg = SimpleNamespace(id=uuid4(), content=data.content, role=data.role)
+            added_messages.append(msg)
+            return msg
+
+    class MockSession:
+        async def execute(self, query):
+            class Res:
+                def scalar_one_or_none(self):
+                    return mock_comp
+            return Res()
+
+    service = VoiceService(
+        session=MockSession(),
+        conversation_service=MockConvService(),
+        stt_provider=MockSpeechToTextProvider(),
+        tts_provider=MockTextToSpeechProvider(),
+    )
+
+    greeting_res = await service.execute_greeting(
+        user_id=user_id,
+        companion_id=companion_id,
+        conversation_id=conv_id,
+    )
+
+    assert greeting_res.companion_name == "Luna"
+    assert "excited to chat" in greeting_res.reply_text or "Luna" in greeting_res.reply_text
+    assert greeting_res.user_message_id is None
+    assert greeting_res.assistant_message_id is not None
+    assert greeting_res.audio_base64 is not None
+    assert len(added_messages) == 1
+    assert added_messages[0].role == "assistant"
 

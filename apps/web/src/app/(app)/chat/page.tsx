@@ -61,6 +61,11 @@ function LiveCompanionStage() {
     stopListening,
     interrupt,
     submitText,
+    autoplayBlocked,
+    resumeAudio,
+    handsFree,
+    toggleHandsFree,
+    isUserSpeaking,
   } = useLiveVoiceCompanion({
     companionId: selectedCompanion?.id,
     conversationId: activeConversationId,
@@ -150,7 +155,7 @@ function LiveCompanionStage() {
       ) {
         e.preventDefault();
         isSpacePressedRef.current = true;
-        if (state === 'speaking' || state === 'generating_response') {
+        if (state === 'speaking') {
           interrupt();
         } else if (state === 'idle') {
           startListening();
@@ -364,7 +369,7 @@ function LiveCompanionStage() {
           {/* Customize Companion Button */}
           {selectedCompanion && (
             <Link
-              href={`/onboarding/companion?edit=${selectedCompanion.id}`}
+              href={`/onboarding/companion?editId=${selectedCompanion.id}`}
               className="p-2.5 rounded-xl text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 transition shadow-sm"
               title="Customize Appearance & Personality"
             >
@@ -431,6 +436,17 @@ function LiveCompanionStage() {
           </div>
         )}
 
+        {/* Autoplay prompt banner if browser policy blocked direct audio */}
+        {autoplayBlocked && (
+          <button
+            onClick={resumeAudio}
+            className="mb-4 px-4 py-2 rounded-2xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 flex items-center space-x-2 animate-bounce transition cursor-pointer"
+          >
+            <span>🔊</span>
+            <span>Tap to unmute {selectedCompanion?.name || 'companion'}</span>
+          </button>
+        )}
+
         {/* Large Character Portrait */}
         <div className="relative flex flex-col items-center">
           <AvatarRenderer
@@ -475,9 +491,24 @@ function LiveCompanionStage() {
                 </div>
               </div>
             ) : state === 'listening' ? (
-              <div className="flex items-center space-x-2 text-emerald-400 animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-sm font-medium">Listening to your voice... Speak naturally.</span>
+              <div className="flex flex-col items-center space-y-1 animate-in fade-in duration-200">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span className="text-sm font-semibold tracking-wide">
+                    {transcript
+                      ? `Listening: "${transcript}"`
+                      : isUserSpeaking
+                      ? 'Listening... (Speech detected)'
+                      : handsFree
+                      ? 'Listening... Speak naturally'
+                      : 'Listening... (Tap mic to send)'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-emerald-400/80">
+                  {handsFree
+                    ? 'A ~1.5s natural pause will automatically send your turn'
+                    : 'Tap mic or press Space to finish'}
+                </div>
               </div>
             ) : state === 'processing_speech' ? (
               <div className="text-sm text-sky-400 animate-pulse">
@@ -493,7 +524,15 @@ function LiveCompanionStage() {
               </div>
             ) : (
               <div className="text-xs sm:text-sm text-slate-500 font-light">
-                Tap the microphone or hold <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">Space</kbd> to talk.
+                {handsFree ? (
+                  <span>
+                    Free-Flow Voice active. Tap the microphone or say hello to start.
+                  </span>
+                ) : (
+                  <span>
+                    Tap the microphone or hold <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">Space</kbd> to talk.
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -502,10 +541,51 @@ function LiveCompanionStage() {
 
       {/* Bottom Control Deck */}
       <footer className="relative z-20 pb-8 pt-4 px-4 flex flex-col items-center justify-center border-t border-slate-900/60 bg-slate-950/60 backdrop-blur-lg">
+        {/* Free-Flow Voice Mode Toggle Pill */}
+        <div className="mb-4 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={toggleHandsFree}
+            className={`group flex items-center space-x-2 px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+              handsFree
+                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/20 shadow-sm shadow-emerald-500/10'
+                : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+            title={
+              handsFree
+                ? 'Free-Flow Voice is ON: Mic automatically listens after companion speaks and sends when you pause. Tap to switch to manual push-to-talk.'
+                : 'Free-Flow Voice is OFF (Manual Push-to-Talk): Tap mic button to speak and tap again to send. Tap to switch to continuous hands-free talking.'
+            }
+          >
+            <span
+              className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                handsFree
+                  ? state === 'listening'
+                    ? isUserSpeaking
+                      ? 'bg-emerald-400 animate-ping'
+                      : 'bg-emerald-400 animate-pulse'
+                    : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                  : 'bg-slate-500'
+              }`}
+            />
+            <span className="tracking-wide">
+              {handsFree ? 'Free-Flow Voice: ON' : 'Free-Flow Voice: OFF'}
+            </span>
+            <span className="text-[10px] opacity-75 font-normal hidden sm:inline">
+              {handsFree ? '(Hands-Free)' : '(Push-to-Talk)'}
+            </span>
+          </button>
+        </div>
+
         <div className="flex items-center space-x-6">
           {/* Optional Keyboard Fallback Toggle */}
           <button
-            onClick={() => setShowTextFallback(!showTextFallback)}
+            onClick={() => {
+              if (!showTextFallback && state === 'listening') {
+                stopListening();
+              }
+              setShowTextFallback(!showTextFallback);
+            }}
             className="p-3.5 rounded-2xl text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800 hover:bg-slate-800 transition shadow-md"
             title="Keyboard mode"
           >
@@ -533,19 +613,23 @@ function LiveCompanionStage() {
               onClick={() => {
                 if (state === 'listening') {
                   stopListening();
-                } else if (state === 'speaking' || state === 'generating_response') {
+                } else if (state === 'speaking') {
                   interrupt();
+                } else if (state === 'generating_response' || state === 'processing_speech') {
+                  // Do not self-interrupt voice generation from main mic button
+                  return;
                 } else if (state === 'idle' || state === 'interrupted' || state === 'error') {
                   startListening();
                 }
               }}
+              disabled={state === 'requesting_microphone'}
               className={`relative z-10 w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${
                 state === 'listening'
                   ? 'bg-emerald-500 text-slate-950 scale-105 shadow-[0_0_50px_rgba(16,185,129,0.5)] ring-4 ring-emerald-400/60'
                   : state === 'speaking'
-                  ? 'bg-violet-600 text-white shadow-[0_0_40px_rgba(139,92,246,0.4)]'
-                  : state === 'generating_response'
-                  ? 'bg-indigo-600 text-white animate-pulse'
+                  ? 'bg-violet-600 text-white shadow-[0_0_40px_rgba(139,92,246,0.4)] hover:scale-105'
+                  : state === 'generating_response' || state === 'processing_speech'
+                  ? 'bg-indigo-600 text-white animate-pulse cursor-wait'
                   : 'bg-gradient-to-tr from-violet-600 to-indigo-500 text-white hover:scale-105 hover:shadow-violet-600/30 ring-2 ring-violet-400/20'
               }`}
               title={
@@ -553,6 +637,8 @@ function LiveCompanionStage() {
                   ? 'Tap or release to finish speaking'
                   : state === 'speaking'
                   ? 'Companion is speaking. Tap to interrupt'
+                  : state === 'generating_response' || state === 'processing_speech'
+                  ? 'Companion is thinking...'
                   : 'Tap or hold to speak'
               }
             >
