@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class MemoryCreate(BaseModel):
     companion_id: UUID
     conversation_id: Optional[UUID] = None
+    source_message_id: Optional[UUID] = None
     content: str
     memory_type: str = Field(pattern="^(preference|fact|event|relationship|goal|correction)$")
     category: Optional[str] = Field(default=None, max_length=100)
@@ -33,6 +34,7 @@ class MemoryResponse(BaseModel):
     user_id: UUID
     companion_id: UUID
     conversation_id: Optional[UUID]
+    source_message_id: Optional[UUID] = None
     content: str
     memory_type: str
     category: Optional[str]
@@ -59,7 +61,7 @@ class MemoryListResponse(BaseModel):
 
 
 class ConsentRequest(BaseModel):
-    memory_id: UUID
+    memory_id: Optional[UUID] = None
     action: str = Field(pattern="^(approve|deny)$")
 
 

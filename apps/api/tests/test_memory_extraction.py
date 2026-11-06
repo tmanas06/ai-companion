@@ -727,3 +727,647 @@ async def test_on_demand_extract_endpoint_success(mock_embedder):
                     assert data[0]["consent_status"] == "auto_approved"
     finally:
         app.dependency_overrides.clear()
+
+
+# ==============================================================================
+# 3. Milestone 2.1 Security, Consent, and Correctness Patch Tests
+# ==============================================================================
+
+
+@pytest.mark.parametrize(
+    "text,expected_sensitive",
+    [
+        # Medical & Medication
+        ("User takes 500mg Metformin with breakfast every morning", True),
+        ("User prefers taking Lexapro at bedtime", True),
+        ("User has a prescription for Adderall.", True),
+        ("User takes insulin daily for diabetes.", True),
+        ("User is receiving chemotherapy treatments.", True),
+        ("User diagnosed with stage 3 cancer.", True),
+        # Mental Health
+        ("User attends counseling for severe OCD", True),
+        ("User suffers from PTSD and panic attacks.", True),
+        ("User was prescribed Zoloft for depression.", True),
+        # Financial Distress & Debt
+        ("User filed for Chapter 7 bankruptcy", True),
+        ("User's home is facing foreclosure and eviction.", True),
+        ("User's credit score is 540.", True),
+        ("User defaulted on a payday loan.", True),
+        # Credentials & Secrets
+        ("User's master PIN is 4829", True),
+        ("User's secret PIN code: 123456", True),
+        ("User's SSH key is ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...", True),
+        ("User authentication token is Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", True),
+        # PII & Identity
+        ("User's phone number is +44 20 7946 0958.", True),
+        ("User's driver's license number is D1234567.", True),
+        ("User lives at 742 Evergreen Terrace, Springfield.", True),
+        # Benign counterexamples (must NOT be marked sensitive)
+        ("User prefers dark roast coffee.", False),
+        ("User prefers dark mode in their code editor.", False),
+        ("User runs 5km every Saturday morning.", False),
+        ("User works as a software architect.", False),
+        ("User lives in Seattle.", False),
+        ("User has a cat named Luna.", False),
+        ("User prefers concise bullet points.", False),
+    ],
+)
+def test_sensitivity_classification_expanded_domains(text: str, expected_sensitive: bool):
+    """P0 Finding 2: Deterministic sensitivity classifier handles expanded domains and benign counterexamples."""
+    assert is_content_sensitive(text) is expected_sensitive
+
+
+@pytest.mark.asyncio
+async def test_update_memory_sensitive_resets_consent_and_clears_embedding(mock_embedder):
+    """P0 Finding 1: Updating an approved memory to sensitive content resets consent to pending and clears embedding."""
+    async with async_session_maker() as session:
+        user = User(email=f"upd_sens_{uuid4()}@example.com", password_hash="hash", full_name="Upd User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        mem_service = MemoryService(session, embedding_provider=mock_embedder)
+
+        # 1. Start with an auto-approved benign memory
+        mem = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="User prefers black coffee.",
+                memory_type="preference",
+                source="user_explicit",
+                is_sensitive=False,
+            ),
+        )
+        assert mem.consent_status == "auto_approved"
+        assert mem.embedding is not None
+
+        # 2. Update to a medical diagnosis
+        from app.schemas.memory import MemoryUpdate
+        updated = await mem_service.update_memory(
+            user.id,
+            mem.id,
+            MemoryUpdate(content="User diagnosed with stage 3 melanoma."),
+        )
+        assert updated is not None
+        assert updated.is_sensitive is True
+        assert updated.consent_status == "pending"
+        assert updated.consent_requested_at is not None
+        assert updated.consent_granted_at is None
+        assert updated.embedding is None  # Embedding must be cleared!
+
+        # 3. Approve via dedicated consent endpoint
+        from app.schemas.memory import ConsentRequest
+        approved = await mem_service.handle_consent(
+            user.id,
+            ConsentRequest(memory_id=mem.id, action="approve"),
+        )
+        assert approved.consent_status == "approved"
+        assert approved.embedding is not None
+
+        # 4. Update approved memory to financial distress
+        updated_financial = await mem_service.update_memory(
+            user.id,
+            mem.id,
+            MemoryUpdate(content="User filed for Chapter 7 bankruptcy."),
+        )
+        assert updated_financial.is_sensitive is True
+        assert updated_financial.consent_status == "pending"
+        assert updated_financial.embedding is None
+
+        # 5. Client attempts to bypass classification by supplying is_sensitive=False with sensitive text
+        bypassed = await mem_service.update_memory(
+            user.id,
+            mem.id,
+            MemoryUpdate(
+                content="User takes 500mg Metformin with breakfast every morning.",
+                is_sensitive=False,
+            ),
+        )
+        # Deterministic check overrides client bypass
+        assert bypassed.is_sensitive is True
+        assert bypassed.consent_status == "pending"
+        assert bypassed.embedding is None
+
+        # 6. Attempting to modify consent_status directly via generic update raises ValueError
+        with pytest.raises(ValueError) as exc:
+            await mem_service.update_memory(
+                user.id,
+                mem.id,
+                MemoryUpdate(content="User likes tea.", consent_status="approved"),
+            )
+        assert "consent endpoint" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_update_memory_embedding_failure_rolls_back():
+    """P0 Finding 1: Embedding generation failure during non-sensitive update rolls back cleanly."""
+    failing_embedder = MagicMock()
+    failing_embedder.embed = AsyncMock(side_effect=RuntimeError("Embedding server down"))
+
+    async with async_session_maker() as session:
+        user = User(email=f"upd_fail_{uuid4()}@example.com", password_hash="hash", full_name="Fail User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        # Create approved memory with mock embedder
+        valid_embedder = MockEmbeddingProvider()
+        mem_service = MemoryService(session, embedding_provider=valid_embedder)
+        mem = await mem_service.create_memory(
+            user.id,
+            MemoryCreate(
+                companion_id=companion.id,
+                content="Original text.",
+                memory_type="fact",
+                source="user_explicit",
+                is_sensitive=False,
+            ),
+        )
+        original_embedding = mem.embedding
+
+        # Attempt update with failing embedder
+        failing_mem_service = MemoryService(session, embedding_provider=failing_embedder)
+        from app.schemas.memory import MemoryUpdate
+        with pytest.raises(RuntimeError):
+            await failing_mem_service.update_memory(
+                user.id,
+                mem.id,
+                MemoryUpdate(content="Updated non-sensitive text."),
+            )
+
+        # In a fresh session, verify original state was preserved
+        async with async_session_maker() as verify_session:
+            fresh_mem = await verify_session.get(Memory, mem.id)
+            assert fresh_mem.content == "Original text."
+            assert fresh_mem.embedding == original_embedding
+            assert fresh_mem.consent_status == "auto_approved"
+
+
+class SpyEmbeddingProvider(MockEmbeddingProvider):
+    """Spy embedding provider that records every input passed to embed()."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.embedded_inputs: list[str] = []
+
+    async def embed(self, text: str) -> list[float]:
+        self.embedded_inputs.append(text)
+        return await super().embed(text)
+
+
+@pytest.mark.asyncio
+async def test_sensitive_candidate_is_never_passed_to_embedder():
+    """P0 Finding 3: Pending sensitive candidate content is NEVER transmitted to the embedding provider."""
+    spy_embedder = SpyEmbeddingProvider()
+
+    async with async_session_maker() as session:
+        user = User(email=f"spy_sens_{uuid4()}@example.com", password_hash="hash", full_name="Spy User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conversation = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conversation)
+        await session.flush()
+
+        msg = Message(
+            conversation_id=conversation.id,
+            role="user",
+            content="I take 500mg Metformin with breakfast every morning.",
+        )
+        session.add(msg)
+        await session.commit()
+
+        # LLM returns sensitive candidate
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User takes 500mg Metformin with breakfast every morning",
+                    "memory_type": "fact",
+                    "category": "health",
+                    "confidence": 0.95,
+                    "is_sensitive": True,
+                }
+            ]
+        })
+        provider = MockExtractionProvider(llm_response)
+
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=spy_embedder)
+        memories = await service.extract_memories_from_conversation(
+            user_id=user.id,
+            conversation_id=conversation.id,
+        )
+
+        assert len(memories) == 1
+        mem = memories[0]
+        assert mem.consent_status == "pending"
+        assert mem.embedding is None
+
+        # Assert spy embedder was NEVER called with the sensitive content during deduplication
+        assert spy_embedder.embedded_inputs == []
+
+
+@pytest.mark.asyncio
+async def test_cross_conversation_concurrency_deduplication(mock_embedder):
+    """P1 Finding 4: Concurrent extractions across two different conversations for the same companion do not duplicate."""
+    async with async_session_maker() as session:
+        user = User(email=f"cross_conv_{uuid4()}@example.com", password_hash="hash", full_name="Cross User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Shared Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conv1 = Conversation(user_id=user.id, companion_id=companion.id)
+        conv2 = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add_all([conv1, conv2])
+        await session.flush()
+
+        msg1 = Message(conversation_id=conv1.id, role="user", content="I love classical music.")
+        msg2 = Message(conversation_id=conv2.id, role="user", content="Remember that I love classical music.")
+        session.add_all([msg1, msg2])
+        await session.commit()
+
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User loves classical music.",
+                    "memory_type": "preference",
+                    "category": "music",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                }
+            ]
+        })
+
+        async def run_worker(target_conv_id):
+            async with async_session_maker() as worker_session:
+                worker_provider = MockExtractionProvider(llm_response)
+                worker_service = MemoryExtractionService(
+                    worker_session,
+                    provider=worker_provider,
+                    embedding_provider=mock_embedder,
+                )
+                return await worker_service.extract_memories_from_conversation(
+                    user_id=user.id,
+                    conversation_id=target_conv_id,
+                )
+
+        # Launch concurrent extractions on Conversation 1 and Conversation 2
+        await asyncio.gather(run_worker(conv1.id), run_worker(conv2.id))
+
+        # Under the companion-scoped row lock, exactly 1 memory must be persisted in PostgreSQL
+        async with async_session_maker() as verify_session:
+            persisted = (
+                await verify_session.execute(
+                    select(Memory).where(
+                        Memory.user_id == user.id,
+                        Memory.companion_id == companion.id,
+                        Memory.deleted_at.is_(None),
+                    )
+                )
+            ).scalars().all()
+            assert len(persisted) == 1
+            assert persisted[0].content == "User loves classical music."
+
+
+@pytest.mark.asyncio
+async def test_validate_supersession_conflicts(mock_embedder):
+    """P1 Finding 5: Supersession is validated for topic compatibility and cross-companion/cross-user isolation."""
+    async with async_session_maker() as session:
+        user_a = User(email=f"sup_a_{uuid4()}@example.com", password_hash="hash", full_name="User A")
+        user_b = User(email=f"sup_b_{uuid4()}@example.com", password_hash="hash", full_name="User B")
+        session.add_all([user_a, user_b])
+        await session.flush()
+
+        comp_a1 = Companion(user_id=user_a.id, name="Comp A1", system_prompt="Sys")
+        comp_a2 = Companion(user_id=user_a.id, name="Comp A2", system_prompt="Sys")
+        comp_b = Companion(user_id=user_b.id, name="Comp B", system_prompt="Sys")
+        session.add_all([comp_a1, comp_a2, comp_b])
+        await session.flush()
+
+        mem_service = MemoryService(session, embedding_provider=mock_embedder)
+
+        # Memory 1: User A, Comp A1, category="work"
+        work_mem = await mem_service.create_memory(
+            user_a.id,
+            MemoryCreate(
+                companion_id=comp_a1.id,
+                content="User works as a software architect.",
+                category="work",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+
+        # Memory 2: User A, Comp A2 (different companion)
+        comp_a2_mem = await mem_service.create_memory(
+            user_a.id,
+            MemoryCreate(
+                companion_id=comp_a2.id,
+                content="User likes jazz.",
+                category="music",
+                memory_type="preference",
+                source="user_explicit",
+            ),
+        )
+
+        # Memory 3: User B (different user)
+        user_b_mem = await mem_service.create_memory(
+            user_b.id,
+            MemoryCreate(
+                companion_id=comp_b.id,
+                content="User lives in London.",
+                category="location",
+                memory_type="fact",
+                source="user_explicit",
+            ),
+        )
+
+        conv = Conversation(user_id=user_a.id, companion_id=comp_a1.id)
+        session.add(conv)
+        await session.flush()
+
+        msg = Message(conversation_id=conv.id, role="user", content="I play tennis on weekends.")
+        session.add(msg)
+        await session.commit()
+
+        # 1. Hallucinated conflict ID pointing to unrelated category ("work" vs "sports")
+        hallucinated_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User plays tennis on weekends.",
+                    "memory_type": "preference",
+                    "category": "sports",
+                    "confidence": 0.95,
+                    "conflicts_with_id": str(work_mem.id),  # Hallucinated conflict with work fact
+                }
+            ]
+        })
+        provider = MockExtractionProvider(hallucinated_response)
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        memories = await service.extract_memories_from_conversation(user_a.id, conv.id)
+        assert len(memories) == 1
+
+        # Work memory must NOT be superseded or deleted
+        fresh_work = await session.get(Memory, work_mem.id)
+        assert fresh_work.deleted_at is None
+        assert fresh_work.superseded_by is None
+
+        # 2. Hallucinated conflict ID pointing to another companion's memory
+        msg2 = Message(conversation_id=conv.id, role="user", content="I listen to pop music now.")
+        session.add(msg2)
+        await session.commit()
+
+        cross_comp_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User switched to pop music.",
+                    "memory_type": "preference",
+                    "category": "music",
+                    "confidence": 0.95,
+                    "conflicts_with_id": str(comp_a2_mem.id),
+                }
+            ]
+        })
+        provider2 = MockExtractionProvider(cross_comp_response)
+        service2 = MemoryExtractionService(session, provider=provider2, embedding_provider=mock_embedder)
+        memories2 = await service2.extract_memories_from_conversation(user_a.id, conv.id)
+        assert len(memories2) == 1
+
+        fresh_comp_a2 = await session.get(Memory, comp_a2_mem.id)
+        assert fresh_comp_a2.deleted_at is None
+
+        # 3. Hallucinated conflict ID pointing to another user's memory
+        msg3 = Message(conversation_id=conv.id, role="user", content="I live in New York.")
+        session.add(msg3)
+        await session.commit()
+
+        cross_user_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User lives in New York.",
+                    "memory_type": "fact",
+                    "category": "location",
+                    "confidence": 0.95,
+                    "conflicts_with_id": str(user_b_mem.id),
+                }
+            ]
+        })
+        provider3 = MockExtractionProvider(cross_user_response)
+        service3 = MemoryExtractionService(session, provider=provider3, embedding_provider=mock_embedder)
+        memories3 = await service3.extract_memories_from_conversation(user_a.id, conv.id)
+        assert len(memories3) == 1
+
+        fresh_user_b = await session.get(Memory, user_b_mem.id)
+        assert fresh_user_b.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_consent_endpoint_path_binding_and_ownership(mock_embedder):
+    """P1 Finding 6: POST /api/v1/memories/{memory_id}/consent validates route ID and ownership."""
+    async with async_session_maker() as session:
+        user_a = User(email=f"cons_a_{uuid4()}@example.com", password_hash="hash", full_name="Cons A")
+        user_b = User(email=f"cons_b_{uuid4()}@example.com", password_hash="hash", full_name="Cons B")
+        session.add_all([user_a, user_b])
+        await session.flush()
+
+        comp_a = Companion(user_id=user_a.id, name="Comp A", system_prompt="Sys")
+        comp_b = Companion(user_id=user_b.id, name="Comp B", system_prompt="Sys")
+        session.add_all([comp_a, comp_b])
+        await session.flush()
+
+        mem_service = MemoryService(session, embedding_provider=mock_embedder)
+        mem_a = await mem_service.create_memory(
+            user_a.id,
+            MemoryCreate(
+                companion_id=comp_a.id,
+                content="User takes 500mg Metformin.",
+                memory_type="fact",
+                is_sensitive=True,
+                source="user_explicit",
+            ),
+        )
+        mem_b = await mem_service.create_memory(
+            user_b.id,
+            MemoryCreate(
+                companion_id=comp_b.id,
+                content="User takes Lexapro.",
+                memory_type="fact",
+                is_sensitive=True,
+                source="user_explicit",
+            ),
+        )
+
+    from app.core.database import get_db
+    from app.services.memory import get_memory_service
+    from fastapi import Depends
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async def override_get_memory_service(s: AsyncSession = Depends(get_db)):
+        return MemoryService(s, embedding_provider=mock_embedder)
+
+    app.dependency_overrides[get_current_user] = lambda: user_a
+    app.dependency_overrides[get_memory_service] = override_get_memory_service
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # 1. Matching URL and body ID -> 200 OK
+            resp_match = await client.post(
+                f"/api/v1/memories/{mem_a.id}/consent",
+                json={"memory_id": str(mem_a.id), "action": "approve"},
+            )
+            assert resp_match.status_code == 200
+            assert resp_match.json()["consent_status"] == "approved"
+
+            # 2. Conflicting URL ID and body ID -> 400 Bad Request
+            resp_conflict = await client.post(
+                f"/api/v1/memories/{mem_a.id}/consent",
+                json={"memory_id": str(uuid4()), "action": "approve"},
+            )
+            assert resp_conflict.status_code == 400
+            assert "does not match" in resp_conflict.json()["detail"]
+
+            # 3. Nonexistent memory in URL -> 404 Not Found
+            nonexistent_id = uuid4()
+            resp_404 = await client.post(
+                f"/api/v1/memories/{nonexistent_id}/consent",
+                json={"action": "approve"},
+            )
+            assert resp_404.status_code == 404
+
+            # 4. Memory belonging to another user -> 404 Not Found
+            resp_other_user = await client.post(
+                f"/api/v1/memories/{mem_b.id}/consent",
+                json={"action": "approve"},
+            )
+            assert resp_other_user.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_feature_flag_and_companion_lifecycle(monkeypatch, mock_embedder):
+    """P1 Finding 7: Feature flag ENABLE_MEMORY_EXTRACTION and companion is_active are strictly enforced."""
+    async with async_session_maker() as session:
+        user = User(email=f"flag_{uuid4()}@example.com", password_hash="hash", full_name="Flag User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys", is_active=True)
+        session.add(companion)
+        await session.flush()
+
+        conversation = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conversation)
+        await session.flush()
+
+        msg = Message(conversation_id=conversation.id, role="user", content="I prefer tea.")
+        session.add(msg)
+        await session.commit()
+
+    # 1. When ENABLE_MEMORY_EXTRACTION = False, chat does not schedule background task
+    monkeypatch.setattr(settings, "ENABLE_MEMORY_EXTRACTION", False)
+    monkeypatch.setattr(settings, "PRIVACY_MODE", "private-machine")
+    monkeypatch.setattr(settings, "DEFAULT_PROVIDER", "mock")
+
+    mock_bg_tasks = MagicMock()
+    async with async_session_maker() as chat_session:
+        conv_service = ConversationService(chat_session)
+        await conv_service.chat(
+            user_id=user.id,
+            request=ChatRequest(companion_id=companion.id, message="Hello again"),
+            background_tasks=mock_bg_tasks,
+        )
+    mock_bg_tasks.add_task.assert_not_called()
+
+    # 2. When ENABLE_MEMORY_EXTRACTION = False, POST /api/v1/memories/extract returns 403 Forbidden
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/memories/extract",
+                json={"conversation_id": str(conversation.id)},
+            )
+            assert resp.status_code == 403
+            assert "disabled" in resp.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+    # 3. Deactivated companion raises ValueError("Companion is inactive")
+    monkeypatch.setattr(settings, "ENABLE_MEMORY_EXTRACTION", True)
+    async with async_session_maker() as deact_session:
+        db_comp = await deact_session.get(Companion, companion.id)
+        db_comp.is_active = False
+        deact_session.add(db_comp)
+        await deact_session.commit()
+
+        provider = MockExtractionProvider('{"candidates": []}')
+        service = MemoryExtractionService(deact_session, provider=provider, embedding_provider=mock_embedder)
+        with pytest.raises(ValueError) as exc:
+            await service.extract_memories_from_conversation(user.id, conversation.id)
+        assert "inactive" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_message_level_provenance_and_recovery(mock_embedder):
+    """P2 Findings 8 & 9: Extracted memories record user source_message_id and extraction is idempotent."""
+    async with async_session_maker() as session:
+        user = User(email=f"prov_{uuid4()}@example.com", password_hash="hash", full_name="Prov User")
+        session.add(user)
+        await session.flush()
+
+        companion = Companion(user_id=user.id, name="Comp", system_prompt="Sys")
+        session.add(companion)
+        await session.flush()
+
+        conversation = Conversation(user_id=user.id, companion_id=companion.id)
+        session.add(conversation)
+        await session.flush()
+
+        user_msg = Message(conversation_id=conversation.id, role="user", content="I prefer working from coffee shops.")
+        asst_msg = Message(conversation_id=conversation.id, role="assistant", content="Coffee shops are great!")
+        session.add_all([user_msg, asst_msg])
+        await session.commit()
+
+        llm_response = json.dumps({
+            "candidates": [
+                {
+                    "content": "User prefers working from coffee shops.",
+                    "memory_type": "preference",
+                    "category": "work",
+                    "confidence": 0.95,
+                    "is_sensitive": False,
+                    "source_message_id": str(user_msg.id),
+                }
+            ]
+        })
+        provider = MockExtractionProvider(llm_response)
+        service = MemoryExtractionService(session, provider=provider, embedding_provider=mock_embedder)
+
+        memories = await service.extract_memories_from_conversation(user.id, conversation.id)
+        assert len(memories) == 1
+        mem = memories[0]
+
+        # Verify source_message_id is stored and matches the user message
+        assert mem.source_message_id == user_msg.id
+
+        # Verify last_extracted_message_id was recorded on the conversation
+        db_conv = await session.get(Conversation, conversation.id)
+        assert db_conv.last_extracted_message_id == asst_msg.id
+
+        # Repeated extraction on the same conversation turn without new messages returns [] idempotently
+        repeated = await service.extract_memories_from_conversation(user.id, conversation.id)
+        assert repeated == []
+

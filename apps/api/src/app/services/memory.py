@@ -6,8 +6,9 @@ from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import Memory, User, Companion, Conversation
+from app.models import Memory, User, Companion, Conversation, Message
 from app.schemas.memory import MemoryCreate, MemoryUpdate, ConsentRequest
+from app.services.sensitivity import is_content_sensitive
 
 if TYPE_CHECKING:
     from app.providers.embedding import BaseEmbeddingProvider
@@ -45,6 +46,12 @@ class MemoryService:
             if not conversation or conversation.user_id != user_id:
                 raise ValueError("Conversation not found or access denied")
 
+        # Verify source_message_id if provided
+        if data.source_message_id:
+            msg = await self.session.get(Message, data.source_message_id)
+            if not msg or (data.conversation_id and msg.conversation_id != data.conversation_id):
+                raise ValueError("Source message not found or belongs to another conversation")
+
         # Determine consent status
         consent_status = "auto_approved" if not data.is_sensitive else "pending"
         consent_requested_at = datetime.now(UTC) if data.is_sensitive else None
@@ -59,6 +66,7 @@ class MemoryService:
             user_id=user_id,
             companion_id=data.companion_id,
             conversation_id=data.conversation_id,
+            source_message_id=data.source_message_id,
             content=data.content,
             memory_type=data.memory_type,
             category=data.category,
@@ -134,7 +142,7 @@ class MemoryService:
     async def update_memory(
         self, user_id: UUID, memory_id: UUID, data: MemoryUpdate
     ) -> Optional["Memory"]:
-        """Update a memory, regenerating embedding if content changes on an approved record."""
+        """Update a memory, enforcing deterministic sensitivity classification and consent invariants."""
         if data.consent_status is not None:
             raise ValueError(
                 "Consent status cannot be modified via generic memory update; "
@@ -145,13 +153,42 @@ class MemoryService:
         if not memory:
             return None
 
-        content_changed = data.content is not None and data.content != memory.content
+        # Determine target content and whether it changed
+        target_content = data.content.strip() if data.content is not None else memory.content
+        if not target_content:
+            raise ValueError("Memory content cannot be empty")
+        content_changed = data.content is not None and target_content != memory.content
+
+        # Deterministic sensitivity check on target content
+        content_is_sensitive = is_content_sensitive(target_content)
+        explicit_sensitive = data.is_sensitive is True or (data.is_sensitive is None and memory.is_sensitive)
+        new_is_sensitive = content_is_sensitive or explicit_sensitive
+
+        # Detect transition to sensitive state or requiring renewed consent
+        became_sensitive = new_is_sensitive and (
+            memory.consent_status in ("approved", "auto_approved")
+            or not memory.is_sensitive
+            or content_changed
+        )
+
         if content_changed:
-            memory.content = data.content
-            # Regenerate embedding if memory is active/approved
-            if memory.consent_status in ("approved", "auto_approved"):
+            memory.content = target_content
+
+        if new_is_sensitive:
+            memory.is_sensitive = True
+            if became_sensitive:
+                memory.consent_status = "pending"
+                memory.consent_requested_at = datetime.now(UTC)
+                memory.consent_granted_at = None
+                # Clear existing embedding: sensitive pending memories must never have embeddings
+                memory.embedding = None
+        else:
+            if data.is_sensitive is False:
+                memory.is_sensitive = False
+            # Non-sensitive content updates: only regenerate embedding if memory is currently approved
+            if content_changed and memory.consent_status in ("approved", "auto_approved"):
                 provider = self._get_embedding_provider()
-                memory.embedding = await provider.embed(data.content)
+                memory.embedding = await provider.embed(target_content)
 
         if data.memory_type is not None:
             memory.memory_type = data.memory_type
@@ -159,8 +196,6 @@ class MemoryService:
             memory.category = data.category
         if data.confidence is not None:
             memory.confidence = data.confidence
-        if data.is_sensitive is not None:
-            memory.is_sensitive = data.is_sensitive
 
         memory.updated_at = datetime.now(UTC)
         try:
@@ -217,9 +252,18 @@ class MemoryService:
         await self.session.refresh(new_memory)
         return new_memory
 
-    async def handle_consent(self, user_id: UUID, request: ConsentRequest) -> "Memory":
-        """Handle user consent for a sensitive memory."""
-        memory = await self.get_memory(user_id, request.memory_id)
+    async def handle_consent(
+        self,
+        user_id: UUID,
+        request: ConsentRequest,
+        path_memory_id: Optional[UUID] = None,
+    ) -> "Memory":
+        """Handle user consent for a sensitive memory with authoritative path ID validation."""
+        target_memory_id = path_memory_id or request.memory_id
+        if path_memory_id is not None and request.memory_id is not None and path_memory_id != request.memory_id:
+            raise ValueError("Memory ID in path does not match memory ID in request body")
+
+        memory = await self.get_memory(user_id, target_memory_id)
         if not memory:
             raise ValueError("Memory not found")
 
@@ -245,7 +289,11 @@ class MemoryService:
             raise ValueError("Invalid action")
 
         memory.updated_at = datetime.now(UTC)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
         await self.session.refresh(memory)
         return memory
 

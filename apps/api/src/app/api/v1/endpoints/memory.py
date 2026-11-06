@@ -42,6 +42,14 @@ async def extract_memories(
     service: MemoryExtractionService = Depends(get_memory_extraction_service),
 ):
     """Trigger memory extraction from a completed conversation on-demand."""
+    from app.core.config import settings
+
+    if not settings.ENABLE_MEMORY_EXTRACTION:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Memory extraction is currently disabled by system policy",
+        )
+
     try:
         memories = await service.extract_memories_from_conversation(
             user_id=current_user.id,
@@ -229,12 +237,21 @@ async def handle_consent(
     service: MemoryService = Depends(get_memory_service),
 ):
     """Approve or deny consent for a sensitive memory."""
+    if request.memory_id is not None and request.memory_id != memory_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memory ID in path does not match memory ID in request body",
+        )
     try:
-        memory = await service.handle_consent(current_user.id, request)
+        memory = await service.handle_consent(
+            current_user.id, request, path_memory_id=memory_id
+        )
         return ConsentResponse(
             memory_id=memory.id,
             consent_status=memory.consent_status,
             message=f"Memory consent {memory.consent_status}",
         )
     except ValueError as e:
+        if "not found" in str(e).lower() or "access denied" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

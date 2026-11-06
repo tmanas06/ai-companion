@@ -94,6 +94,10 @@ class Conversation(SQLModel, table=True):
         sa_column=Column(nullable=False),
     )
     deleted_at: Optional[datetime] = Field(default=None)
+    last_extracted_message_id: Optional[UUID] = Field(
+        default=None,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True),
+    )
 
     __table_args__ = (
         Index("ix_conversations_user_id", "user_id"),
@@ -228,6 +232,10 @@ class Memory(SQLModel, table=True):
         sa_column=Column(nullable=False),
     )
     deleted_at: Optional[datetime] = Field(default=None)
+    source_message_id: Optional[UUID] = Field(
+        default=None,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True),
+    )
     superseded_by: Optional[UUID] = Field(
         default=None,
         sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("memories.id", ondelete="SET NULL"), nullable=True),
@@ -237,6 +245,7 @@ class Memory(SQLModel, table=True):
         Index("ix_memories_user_id", "user_id"),
         Index("ix_memories_companion_id", "companion_id"),
         Index("ix_memories_conversation_id", "conversation_id"),
+        Index("ix_memories_source_message_id", "source_message_id"),
         Index("ix_memories_memory_type", "memory_type"),
         Index("ix_memories_consent_status", "consent_status"),
         Index("ix_memories_is_sensitive", "is_sensitive"),

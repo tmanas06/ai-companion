@@ -326,16 +326,19 @@ class ConversationService:
         await self.session.refresh(user_message)
         await self.session.refresh(assistant_message)
 
-        # 6. Schedule background memory extraction if background_tasks provided
+        # 6. Schedule background memory extraction if enabled and background_tasks provided
         if background_tasks is not None:
-            from app.services.extraction import extract_memories_background_task
+            from app.core.config import settings
 
-            background_tasks.add_task(
-                extract_memories_background_task,
-                user_id=user_id,
-                conversation_id=conversation.id,
-                companion_id=companion_id,
-            )
+            if settings.ENABLE_MEMORY_EXTRACTION:
+                from app.services.extraction import extract_memories_background_task
+
+                background_tasks.add_task(
+                    extract_memories_background_task,
+                    user_id=user_id,
+                    conversation_id=conversation.id,
+                    companion_id=companion_id,
+                )
 
         return conversation, user_message, assistant_message
 
