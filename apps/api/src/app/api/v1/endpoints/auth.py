@@ -9,9 +9,10 @@ from app.core.security import (
     create_refresh_token,
     get_password_hash,
     verify_password,
+    get_current_user,
 )
 from app.models.user import User
-from app.schemas.auth import TokenResponse, UserLogin, UserRegister, RefreshRequest
+from app.schemas.auth import TokenResponse, UserLogin, UserRegister, RefreshRequest, UserResponse
 
 router = APIRouter()
 
@@ -103,4 +104,16 @@ async def refresh_token(refresh_request: RefreshRequest, session: AsyncSession =
         access_token=new_access_token,
         refresh_token=new_refresh_token,
         token_type="bearer",
+    )
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Return profile for currently authenticated user."""
+    return UserResponse(
+        id=str(current_user.id),
+        email=current_user.email,
+        full_name=current_user.full_name,
+        is_active=current_user.is_active,
+        created_at=current_user.created_at.isoformat() if current_user.created_at else "",
     )

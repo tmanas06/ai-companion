@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let auth = await getOrRefreshAccessToken(request);
+  const auth = await getOrRefreshAccessToken(request);
   
   if (!auth?.accessToken) {
     return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(`${process.env["API_BASE_URL"] || 'http://localhost:8000'}/api/v1/companions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${auth.accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -92,7 +92,8 @@ export async function POST(request: NextRequest) {
       data = { detail: text || response.statusText };
     }
 
-    return NextResponse.json(data, { status: response.status });
+    const res = NextResponse.json(data, { status: response.status });
+    return setAuthCookies(res, auth);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to create companion';
     return NextResponse.json({ detail: message }, { status: 500 });

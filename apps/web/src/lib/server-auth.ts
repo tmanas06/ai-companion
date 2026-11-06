@@ -8,18 +8,34 @@ export interface AuthTokens {
   isRefreshed?: boolean;
 }
 
+function isJwtExpired(token: string, skewSeconds = 30): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) return true;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const jsonStr = Buffer.from(base64, 'base64').toString('utf-8');
+    const payload = JSON.parse(jsonStr);
+    if (typeof payload.exp !== 'number') return false;
+    return payload.exp * 1000 <= Date.now() + skewSeconds * 1000;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Retrieves a valid access token from cookies, or transparently refreshes it using
- * the refresh_token if the access_token cookie is missing/expired.
+ * the refresh_token if the access_token cookie is missing or expired.
  */
 export async function getOrRefreshAccessToken(request: NextRequest): Promise<AuthTokens | null> {
   const accessToken = request.cookies.get('access_token')?.value;
   const refreshToken = request.cookies.get('refresh_token')?.value;
 
-  if (accessToken) {
+  // If we have a non-expired access token, use it directly
+  if (accessToken && !isJwtExpired(accessToken)) {
     return { accessToken, refreshToken };
   }
 
+  // Access token is missing or expired - refresh proactively using refresh_token
   if (refreshToken) {
     try {
       const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
@@ -38,6 +54,11 @@ export async function getOrRefreshAccessToken(request: NextRequest): Promise<Aut
     } catch (err) {
       console.error('[ServerAuth] Refresh attempt failed:', err);
     }
+  }
+
+  // Fallback: if refresh failed but access_token is present, attempt with existing token
+  if (accessToken) {
+    return { accessToken, refreshToken };
   }
 
   return null;

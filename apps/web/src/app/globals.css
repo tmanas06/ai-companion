@@ -45,3 +45,12 @@ a {
   outline: 2px solid rgb(14, 165, 233);
   outline-offset: 2px;
 }
+
+@keyframes ai-companion-breathe {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(0.35deg);
+  }
+}

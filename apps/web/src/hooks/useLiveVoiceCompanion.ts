@@ -66,6 +66,29 @@ function loadCompanionVoiceSettings(
   };
 }
 
+interface SpeechRecognitionEventLike {
+  results: {
+    length: number;
+    [index: number]: {
+      [index: number]: {
+        transcript: string;
+      };
+    };
+  };
+}
+
+interface BrowserSpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onspeechend: (() => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
 export function useLiveVoiceCompanion({
   companionId,
   conversationId,
@@ -189,6 +212,10 @@ export function useLiveVoiceCompanion({
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSessionIdRef = useRef<number>(0);
+  const playbackAudioContextRef = useRef<AudioContext | null>(null);
+  const playbackSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const playbackAnalyserNodeRef = useRef<AnalyserNode | null>(null);
+  const playbackAnimFrameRef = useRef<number | null>(null);
 
   // VAD & Hands-Free conversation state tracking
   const hasUserSpokenRef = useRef<boolean>(false);
@@ -201,7 +228,7 @@ export function useLiveVoiceCompanion({
   const stopListeningRef = useRef<() => void>(() => {});
   const startListeningRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const liveTranscriptRef = useRef<string>('');
-  const speechRecognitionRef = useRef<any>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognitionLike | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Stop and clean up microphone stream and analysis
@@ -243,6 +270,99 @@ export function useLiveVoiceCompanion({
     setIsUserSpeaking(false);
     noiseFloorSamplesRef.current = [];
   }, []);
+
+  // Stop real-time audio playback amplitude monitoring with resource cleanup
+  const stopPlaybackMonitoring = useCallback(() => {
+    if (playbackAnimFrameRef.current !== null) {
+      cancelAnimationFrame(playbackAnimFrameRef.current);
+      playbackAnimFrameRef.current = null;
+    }
+    if (playbackSourceNodeRef.current) {
+      try {
+        playbackSourceNodeRef.current.disconnect();
+      } catch {
+        // Ignored
+      }
+      playbackSourceNodeRef.current = null;
+    }
+    if (playbackAnalyserNodeRef.current) {
+      try {
+        playbackAnalyserNodeRef.current.disconnect();
+      } catch {
+        // Ignored
+      }
+      playbackAnalyserNodeRef.current = null;
+    }
+    setAudioLevel(0);
+  }, []);
+
+  // Start real-time speech amplitude monitoring connected to Web Audio API
+  const startPlaybackMonitoring = useCallback((audioEl: HTMLAudioElement, sessId: number) => {
+    stopPlaybackMonitoring();
+    if (typeof window === 'undefined') return;
+
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        if (!playbackAudioContextRef.current || playbackAudioContextRef.current.state === 'closed') {
+          playbackAudioContextRef.current = new AudioCtx();
+        }
+        const ctx = playbackAudioContextRef.current;
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+
+        const source = ctx.createMediaElementSource(audioEl);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.3;
+        source.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        playbackSourceNodeRef.current = source;
+        playbackAnalyserNodeRef.current = analyser;
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const loop = () => {
+          if (sessId !== activeSessionIdRef.current || audioEl.paused || audioEl.ended) {
+            stopPlaybackMonitoring();
+            return;
+          }
+
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          const bins = Math.min(bufferLength, 28);
+          for (let i = 2; i < bins; i++) {
+            sum += dataArray[i] ?? 0;
+          }
+          const avg = sum / (bins - 2);
+          const level = Math.min(1.0, Math.max(0.0, avg / 115));
+          setAudioLevel(level);
+
+          playbackAnimFrameRef.current = requestAnimationFrame(loop);
+        };
+
+        playbackAnimFrameRef.current = requestAnimationFrame(loop);
+        return;
+      }
+    } catch {
+      // Fallback: speech syllable modulation based on active playback time
+      const startTime = Date.now();
+      const fallbackLoop = () => {
+        if (sessId !== activeSessionIdRef.current || audioEl.paused || audioEl.ended) {
+          stopPlaybackMonitoring();
+          return;
+        }
+        const t = (Date.now() - startTime) / 1000;
+        const rhythm = Math.max(0, Math.sin(t * 11) * 0.45 + Math.sin(t * 19) * 0.25 + 0.3);
+        setAudioLevel(rhythm);
+        playbackAnimFrameRef.current = requestAnimationFrame(fallbackLoop);
+      };
+      playbackAnimFrameRef.current = requestAnimationFrame(fallbackLoop);
+    }
+  }, [stopPlaybackMonitoring]);
 
   // Monitor audio amplitude for animated visualizer/mouth & voice activity detection (VAD)
   const monitorAudioLevels = useCallback((analyser: AnalyserNode) => {
@@ -356,6 +476,7 @@ export function useLiveVoiceCompanion({
     }
 
     // 3. Stop currently playing audio
+    stopPlaybackMonitoring();
     if (activeAudioRef.current) {
       activeAudioRef.current.pause();
       activeAudioRef.current.currentTime = 0;
@@ -383,7 +504,7 @@ export function useLiveVoiceCompanion({
     setTimeout(() => {
       setState((prev) => (prev === 'interrupted' ? 'idle' : prev));
     }, 700);
-  }, [cleanupMicrophone]);
+  }, [cleanupMicrophone, stopPlaybackMonitoring]);
 
   // Play assistant audio response with amplitude monitoring
   const playAssistantAudio = useCallback(
@@ -408,12 +529,16 @@ export function useLiveVoiceCompanion({
           if (sessionId === activeSessionIdRef.current) {
             setState('speaking');
             setErrorMessage(null);
+            if (audio) {
+              startPlaybackMonitoring(audio, sessionId);
+            }
           } else {
             audio?.pause();
           }
         };
 
         audio.onended = () => {
+          stopPlaybackMonitoring();
           if (sessionId === activeSessionIdRef.current) {
             setState('idle');
             setAudioLevel(0);
@@ -430,6 +555,7 @@ export function useLiveVoiceCompanion({
         };
 
         audio.onerror = () => {
+          stopPlaybackMonitoring();
           // If WAV decode failed, fallback to Web Speech Synthesis
           if (sessionId === activeSessionIdRef.current) {
             playBrowserSpeech(fallbackText, sessionId);
@@ -523,12 +649,25 @@ export function useLiveVoiceCompanion({
           if (sessionId === activeSessionIdRef.current) {
             setState('speaking');
             setErrorMessage(null);
+            const startTime = Date.now();
+            const pulseLoop = () => {
+              if (sessionId !== activeSessionIdRef.current || !window.speechSynthesis.speaking) {
+                stopPlaybackMonitoring();
+                return;
+              }
+              const t = (Date.now() - startTime) / 1000;
+              const rhythm = Math.max(0, Math.sin(t * 10) * 0.4 + Math.sin(t * 18) * 0.2 + 0.35);
+              setAudioLevel(rhythm);
+              playbackAnimFrameRef.current = requestAnimationFrame(pulseLoop);
+            };
+            playbackAnimFrameRef.current = requestAnimationFrame(pulseLoop);
           } else {
             window.speechSynthesis.cancel();
           }
         };
 
         utterance.onend = () => {
+          stopPlaybackMonitoring();
           if (sessionId === activeSessionIdRef.current) {
             setState('idle');
             setAudioLevel(0);
@@ -568,7 +707,7 @@ export function useLiveVoiceCompanion({
         setState('idle');
       }
     },
-    [availableVoices, companionGender, companionName, voiceSettings]
+    [availableVoices, companionGender, companionName, stopPlaybackMonitoring, voiceSettings]
   );
 
   // Submit audio to backend voice turn orchestration
@@ -655,15 +794,34 @@ export function useLiveVoiceCompanion({
           return; // Interrupted gracefully, do not display error banner
         }
 
-        let msg = errorObj?.message || 'Failed to communicate with companion';
-        if (msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
-          msg = 'Connection to the companion was interrupted. Tap the mic to try again.';
-        } else if (msg.includes('Not authenticated') || msg.includes('Invalid token') || msg.includes('credentials')) {
-          msg = 'Session expired. Please refresh the page to continue.';
+        const msg = errorObj?.message || 'Failed to communicate with companion';
+        if (
+          msg.includes('No speech detected') ||
+          msg.toLowerCase().includes('no speech') ||
+          msg.includes('Audio data is empty')
+        ) {
+          // Ambient silence or quick tap without speaking: gracefully return to idle/listen without error banner
+          setState('idle');
+          if (handsFreeRef.current) {
+            if (autoListenTimerRef.current) clearTimeout(autoListenTimerRef.current);
+            autoListenTimerRef.current = setTimeout(() => {
+              if (currentSessionId === activeSessionIdRef.current && stateRef.current === 'idle' && handsFreeRef.current) {
+                startListeningRef.current();
+              }
+            }, 600);
+          }
+          return;
         }
-        setErrorMessage(msg);
+
+        let displayMsg = msg;
+        if (msg.includes('NetworkError') || msg.includes('Failed to fetch') || msg.includes('fetch failed')) {
+          displayMsg = 'Connection to the companion was interrupted. Tap the mic to try again.';
+        } else if (msg.includes('Not authenticated') || msg.includes('Invalid token') || msg.includes('credentials')) {
+          displayMsg = 'Session expired. Please refresh the page to continue.';
+        }
+        setErrorMessage(displayMsg);
         setState('error');
-        if (onError) onError(msg);
+        if (onError) onError(displayMsg);
       }
     },
     [companionId, conversationId, onConversationCreated, onError, playAssistantAudio, playBrowserSpeech, voiceSettings]
@@ -675,6 +833,9 @@ export function useLiveVoiceCompanion({
       clearTimeout(autoListenTimerRef.current);
       autoListenTimerRef.current = null;
     }
+
+    // Cancel any stale opening greeting so it doesn't speak over the user
+    pendingAudioPlaybackRef.current = null;
 
     // Prevent overlapping sessions
     if (state === 'speaking' || state === 'generating_response' || state === 'processing_speech') {
@@ -727,8 +888,14 @@ export function useLiveVoiceCompanion({
       // Initialize Web Speech API if supported by browser for real-time speech transcription
       if (typeof window !== 'undefined') {
         const SpeechRec =
-          (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-          (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition;
+          (window as unknown as {
+            SpeechRecognition?: new () => BrowserSpeechRecognitionLike;
+            webkitSpeechRecognition?: new () => BrowserSpeechRecognitionLike;
+          }).SpeechRecognition ||
+          (window as unknown as {
+            SpeechRecognition?: new () => BrowserSpeechRecognitionLike;
+            webkitSpeechRecognition?: new () => BrowserSpeechRecognitionLike;
+          }).webkitSpeechRecognition;
 
         if (SpeechRec) {
           try {
@@ -737,10 +904,13 @@ export function useLiveVoiceCompanion({
             rec.interimResults = true;
             rec.lang = 'en-US';
 
-            rec.onresult = (event: any) => {
+            rec.onresult = (event: SpeechRecognitionEventLike) => {
               let text = '';
               for (let i = 0; i < event.results.length; i++) {
-                text += event.results[i][0].transcript;
+                const item = event.results[i]?.[0];
+                if (item) {
+                  text += item.transcript;
+                }
               }
               if (text.trim()) {
                 liveTranscriptRef.current = text.trim();
@@ -1004,24 +1174,40 @@ export function useLiveVoiceCompanion({
     startListeningRef.current = startListening;
   }, [startListening]);
 
-  // Cleanup on unmount
+  // Complete leak-free cleanup on unmount
   useEffect(() => {
     return () => {
+      stopPlaybackMonitoring();
+      if (playbackAudioContextRef.current && playbackAudioContextRef.current.state !== 'closed') {
+        try {
+          playbackAudioContextRef.current.close();
+        } catch {
+          // Ignored
+        }
+        playbackAudioContextRef.current = null;
+      }
       if (autoListenTimerRef.current) {
         clearTimeout(autoListenTimerRef.current);
+        autoListenTimerRef.current = null;
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
       }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
       if (activeAudioRef.current) {
         activeAudioRef.current.pause();
+        activeAudioRef.current = null;
       }
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
       cleanupMicrophone();
     };
-  }, [cleanupMicrophone]);
+  }, [cleanupMicrophone, stopPlaybackMonitoring]);
 
   return {
     state,

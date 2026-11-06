@@ -25,16 +25,16 @@ function OnboardingCompanionContent() {
   // Wizard steps: 1 = choose preset / create own, 2 = customize appearance & personality, 3 = meet
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('all');
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(presetId || 'luna');
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(presetId || 'aria');
 
   // Companion form state
-  const [companionName, setCompanionName] = useState('Luna');
+  const [companionName, setCompanionName] = useState('Aria');
   const [companionBio, setCompanionBio] = useState(
-    'A curious, witty, and loyal companion who loves discussing ideas and brightening your day.'
+    'A mindful and deeply empathetic companion who values meaningful conversations, active listening, and calm reflection.'
   );
-  const [selectedStyle, setSelectedStyle] = useState<'photorealistic' | 'anime' | '3d' | 'illustrated'>('anime');
-  const [selectedTraits, setSelectedTraits] = useState<string[]>(['Playful', 'Affectionate', 'Intelligent']);
-  const [previewUrl, setPreviewUrl] = useState<string | null>('/avatars/luna-anime.svg');
+  const [selectedStyle, setSelectedStyle] = useState<'photorealistic' | 'anime' | '3d' | 'illustrated'>('photorealistic');
+  const [selectedTraits, setSelectedTraits] = useState<string[]>(['Caring', 'Thoughtful', 'Calm']);
+  const [previewUrl, setPreviewUrl] = useState<string | null>('/avatars/aria-portrait.webp');
   const [gender, setGender] = useState<'male' | 'female'>('female');
 
   // Layered customization state
@@ -179,16 +179,17 @@ function OnboardingCompanionContent() {
   }
 
   // Appearance Layer update
-  function updateLayer(type: 'skin' | 'eyes' | 'hair' | 'clothing' | 'accessory' | 'background', updates: Partial<AvatarConfig['layers'][0]>) {
+  function updateLayer(type: 'skin' | 'eyes' | 'hair' | 'clothing' | 'accessory' | 'background', updates: Partial<AvatarLayer>) {
     setSelectedPresetId(null); // Switch to custom layer composition
     setPreviewUrl(null); // Switch to dynamic SVG layered rendering on custom tweak
     setAvatarConfig((prev) => {
-      const existing = prev.layers.find((l) => l.type === type);
+      const currentLayers = prev.layers ?? [];
+      const existing = currentLayers.find((l) => l.type === type);
       let updatedLayers;
       if (existing) {
-        updatedLayers = prev.layers.map((l) => (l.type === type ? { ...l, ...updates } : l));
+        updatedLayers = currentLayers.map((l) => (l.type === type ? { ...l, ...updates } : l));
       } else {
-        updatedLayers = [...prev.layers, { type, variant: 'default', ...updates } as AvatarLayer];
+        updatedLayers = [...currentLayers, { type, variant: 'default', ...updates } as AvatarLayer];
       }
       return {
         ...prev,

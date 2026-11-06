@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { AvatarRenderer } from '@/components/companion/AvatarRenderer';
 
 interface PreviewTabProps {
   activeAvatar: Avatar | null;
@@ -34,12 +35,15 @@ export const PreviewTab = ({
       onClick={() => setActiveAvatar(avatar)}
     >
       <div className="flex items-center justify-between mb-3">
-        <div className="w-12 h-12 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-          <svg className="w-6 h-6 text-primary-700 dark:text-primary-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
+        <div className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center bg-slate-900 border border-slate-700">
+          <AvatarRenderer
+            previewUrl={avatar.preview_url || '/avatars/aria-portrait.webp'}
+            name={avatar.name}
+            size={48}
+            state="idle"
+          />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 ml-3">
           <h4 className="font-semibold text-slate-900 dark:text-white">{avatar.name}</h4>
           <p className="text-sm text-slate-500 dark:text-slate-400">v{avatar.config_version}</p>
         </div>
@@ -90,7 +94,12 @@ export const PreviewTab = ({
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Active Avatar</h3>
         <div className="flex flex-col items-center gap-4">
           {activeAvatar ? (
-            <div>Avatar Preview Placeholder</div>
+            <AvatarRenderer
+              previewUrl={activeAvatar.preview_url || '/avatars/aria-portrait.webp'}
+              name={activeAvatar.name}
+              size={240}
+              state="idle"
+            />
           ) : (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400">
               <svg className="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

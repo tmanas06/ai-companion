@@ -46,6 +46,10 @@ function LiveCompanionStage() {
   // Infer gender for the selected companion
   const companionGender = inferCompanionGender(selectedCompanion);
 
+  const handleConversationCreated = useCallback((newId: string) => {
+    setActiveConversationId(newId);
+  }, []);
+
   // Initialize Voice Session Hook
   const {
     state,
@@ -71,7 +75,7 @@ function LiveCompanionStage() {
     conversationId: activeConversationId,
     companionGender,
     companionName: selectedCompanion?.name,
-    onConversationCreated: (newId) => setActiveConversationId(newId),
+    onConversationCreated: handleConversationCreated,
   });
 
   // 1. Auth check
