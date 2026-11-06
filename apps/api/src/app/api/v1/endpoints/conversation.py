@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -137,12 +137,15 @@ async def add_message(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     service: ConversationService = Depends(get_conversation_service),
 ):
     """Send a message and get AI response."""
     try:
-        conversation, user_message, assistant_message = await service.chat(current_user.id, request)
+        conversation, user_message, assistant_message = await service.chat(
+            current_user.id, request, background_tasks=background_tasks
+        )
         return ChatResponse(
             conversation_id=conversation.id,
             message_id=assistant_message.id,

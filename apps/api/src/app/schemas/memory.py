@@ -67,3 +67,7 @@ class ConsentResponse(BaseModel):
     memory_id: UUID
     consent_status: str
     message: str
+
+
+class ExtractMemoriesRequest(BaseModel):
+    conversation_id: UUID

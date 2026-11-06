@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated, Optional
 from uuid import UUID
-from fastapi import Depends
+from fastapi import Depends, BackgroundTasks
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,7 +14,7 @@ from app.schemas.conversation import (
     ChatRequest,
 )
 from app.providers import get_provider, CompletionRequest
-from app.core.database import get_async_session
+from app.core.database import get_db
 
 
 def format_untrusted_memory_content(content: str) -> str:
@@ -198,6 +198,7 @@ class ConversationService:
         self,
         user_id: UUID,
         request: ChatRequest,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> tuple["Conversation", "Message", "Message"]:
         """
         Process a chat request:
@@ -325,11 +326,22 @@ class ConversationService:
         await self.session.refresh(user_message)
         await self.session.refresh(assistant_message)
 
+        # 6. Schedule background memory extraction if background_tasks provided
+        if background_tasks is not None:
+            from app.services.extraction import extract_memories_background_task
+
+            background_tasks.add_task(
+                extract_memories_background_task,
+                user_id=user_id,
+                conversation_id=conversation.id,
+                companion_id=companion_id,
+            )
+
         return conversation, user_message, assistant_message
 
 
 async def get_conversation_service(
-    session: Annotated[AsyncSession, Depends(get_async_session)]
+    session: Annotated[AsyncSession, Depends(get_db)]
 ) -> ConversationService:
     """Dependency for getting conversation service."""
     return ConversationService(session)

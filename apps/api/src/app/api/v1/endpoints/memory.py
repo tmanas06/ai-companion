@@ -12,8 +12,10 @@ from app.schemas.memory import (
     MemoryListResponse,
     ConsentRequest,
     ConsentResponse,
+    ExtractMemoriesRequest,
 )
 from app.services.memory import MemoryService, get_memory_service
+from app.services.extraction import MemoryExtractionService, get_memory_extraction_service
 from app.models import User, Companion
 
 router = APIRouter(tags=["memories"])
@@ -31,6 +33,24 @@ async def create_memory(
         return memory
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/extract", response_model=list[MemoryResponse])
+async def extract_memories(
+    data: ExtractMemoriesRequest,
+    current_user: User = Depends(get_current_user),
+    service: MemoryExtractionService = Depends(get_memory_extraction_service),
+):
+    """Trigger memory extraction from a completed conversation on-demand."""
+    try:
+        memories = await service.extract_memories_from_conversation(
+            user_id=current_user.id,
+            conversation_id=data.conversation_id,
+        )
+        return memories
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
 
 
 @router.get("", response_model=MemoryListResponse)
