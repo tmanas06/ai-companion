@@ -121,8 +121,12 @@ class VoiceService:
         )
 
         # 5. Synthesize TTS audio for companion's reply
-        audio_wav = await self.synthesize_speech(assistant_msg.content, voice=voice)
-        audio_b64 = base64.b64encode(audio_wav).decode("ascii") if audio_wav else None
+        voice_target = voice or companion.name
+        audio_data = await self.synthesize_speech(assistant_msg.content, voice=voice_target)
+        audio_b64 = base64.b64encode(audio_data).decode("ascii") if audio_data else None
+
+        provider_type = getattr(self.tts_provider, "provider_type", "mock")
+        audio_format = "audio/mpeg" if provider_type == "edge-tts" else "audio/wav"
 
         return VoiceTurnResponse(
             conversation_id=conv_res.id,
@@ -133,8 +137,8 @@ class VoiceService:
             companion_id=companion.id,
             companion_name=companion.name,
             audio_base64=audio_b64,
-            audio_format="audio/wav",
-            tts_provider=getattr(self.tts_provider, "provider_type", "mock"),
+            audio_format=audio_format,
+            tts_provider=provider_type,
             model=assistant_msg.model or "ollama",
         )
 

@@ -18,6 +18,8 @@ importers:
         specifier: ^2.0.0
         version: 2.11.9
 
+  apps/api: {}
+
   apps/mobile:
     dependencies:
       '@ai-companion/shared':

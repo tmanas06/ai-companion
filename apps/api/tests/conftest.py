@@ -10,6 +10,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("LOG_LEVEL", "DEBUG")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+os.environ.setdefault("TTS_PROVIDER", "mock")
 
 # Clear settings cache to pick up new environment variables
 import app.core.config as config_module

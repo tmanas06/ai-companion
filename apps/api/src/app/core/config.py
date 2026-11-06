@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     ENABLE_OAUTH_APPLE: bool = False
     ENABLE_OAUTH_GITHUB: bool = True
 
+    TTS_PROVIDER: str = "edge-tts"
+    TTS_VOICE: str = "en-US-JennyNeural"
+
 
 @lru_cache
 def get_settings() -> Settings:

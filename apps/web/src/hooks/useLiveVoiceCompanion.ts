@@ -2,6 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { CompanionVoiceState } from '@/components/companion/AvatarRenderer';
+import {
+  selectVoiceForCompanion,
+  getCompanionVoiceProfile,
+} from '@/lib/voice-manager';
 
 export interface VoiceSettings {
   speechRate: number;
@@ -13,13 +17,59 @@ export interface VoiceSettings {
 interface UseLiveVoiceCompanionOptions {
   companionId?: string;
   conversationId?: string | null;
+  companionGender?: 'male' | 'female';
+  companionName?: string;
   onConversationCreated?: (newId: string) => void;
   onError?: (err: string) => void;
+}
+
+function loadCompanionVoiceSettings(
+  id?: string,
+  name?: string,
+  gender: 'male' | 'female' = 'female'
+): VoiceSettings {
+  const profile = getCompanionVoiceProfile(name, gender);
+  if (typeof window !== 'undefined') {
+    try {
+      if (id) {
+        const saved = localStorage.getItem(`ai_companion_voice_${id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return {
+            speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : profile.speechRate,
+            pitch: typeof parsed.pitch === 'number' ? parsed.pitch : profile.pitch,
+            ttsEngine: parsed.ttsEngine === 'browser' ? 'browser' : 'backend',
+            voiceName: parsed.voiceName || profile.neuralVoice,
+          };
+        }
+      }
+      const generic = localStorage.getItem('ai_companion_voice_settings');
+      if (generic) {
+        const parsed = JSON.parse(generic);
+        return {
+          speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : profile.speechRate,
+          pitch: typeof parsed.pitch === 'number' ? parsed.pitch : profile.pitch,
+          ttsEngine: parsed.ttsEngine === 'browser' ? 'browser' : 'backend',
+          voiceName: parsed.voiceName || profile.neuralVoice,
+        };
+      }
+    } catch (e) {
+      // Ignored
+    }
+  }
+  return {
+    speechRate: profile.speechRate,
+    pitch: profile.pitch,
+    ttsEngine: 'backend',
+    voiceName: profile.neuralVoice,
+  };
 }
 
 export function useLiveVoiceCompanion({
   companionId,
   conversationId,
+  companionGender = 'female',
+  companionName,
   onConversationCreated,
   onError,
 }: UseLiveVoiceCompanionOptions) {
@@ -28,40 +78,28 @@ export function useLiveVoiceCompanion({
   const [lastCompanionSpeech, setLastCompanionSpeech] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState<number>(0);
-  const [voiceSettings, setVoiceSettingsState] = useState<VoiceSettings>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('ai_companion_voice_settings');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          return {
-            speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : 1.0,
-            pitch: typeof parsed.pitch === 'number' ? parsed.pitch : 1.0,
-            ttsEngine: parsed.ttsEngine === 'backend' ? 'backend' : 'browser',
-            voiceName: parsed.voiceName,
-          };
-        }
-      } catch (e) {
-        // Ignored
-      }
-    }
-    return {
-      speechRate: 1.0,
-      pitch: 1.0,
-      ttsEngine: 'browser',
-    };
-  });
+  const [voiceSettings, setVoiceSettingsState] = useState<VoiceSettings>(() =>
+    loadCompanionVoiceSettings(companionId, companionName, companionGender)
+  );
+
+  // Sync settings whenever active companion or gender changes
+  useEffect(() => {
+    setVoiceSettingsState(loadCompanionVoiceSettings(companionId, companionName, companionGender));
+  }, [companionId, companionName, companionGender]);
 
   const setVoiceSettings = useCallback((newSettings: VoiceSettings) => {
     setVoiceSettingsState(newSettings);
     if (typeof window !== 'undefined') {
       try {
+        if (companionId) {
+          localStorage.setItem(`ai_companion_voice_${companionId}`, JSON.stringify(newSettings));
+        }
         localStorage.setItem('ai_companion_voice_settings', JSON.stringify(newSettings));
       } catch (e) {
         // Ignored
       }
     }
-  }, []);
+  }, [companionId]);
 
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -177,14 +215,15 @@ export function useLiveVoiceCompanion({
 
   // Play assistant audio response with amplitude monitoring
   const playAssistantAudio = useCallback(
-    async (audioBase64: string, fallbackText: string, sessionId: number) => {
+    async (audioBase64: string, fallbackText: string, sessionId: number, audioFormat?: string) => {
       if (sessionId !== activeSessionIdRef.current) {
         return; // Session cancelled/interrupted
       }
 
       try {
         // Convert base64 to audio object
-        const audioSrc = `data:audio/wav;base64,${audioBase64}`;
+        const mime = audioFormat && audioFormat.includes('/') ? audioFormat : `audio/${audioFormat || 'mpeg'}`;
+        const audioSrc = `data:${mime};base64,${audioBase64}`;
         const audio = new Audio(audioSrc);
         activeAudioRef.current = audio;
 
@@ -246,37 +285,36 @@ export function useLiveVoiceCompanion({
 
         const utterance = new SpeechSynthesisUtterance(text);
         activeUtteranceRef.current = utterance;
-        utterance.rate = voiceSettings.speechRate;
-        utterance.pitch = voiceSettings.pitch;
 
-        // Select chosen voice or suitable English voice
+        // Guaranteed gender-matched voice & distinct pitch profile
         const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
-        if (voices && voices.length > 0) {
-          let selected = voiceSettings.voiceName
-            ? voices.find((v) => v.name === voiceSettings.voiceName || v.voiceURI === voiceSettings.voiceName)
-            : undefined;
+        const gender = companionGender || 'female';
+        const selection = selectVoiceForCompanion(
+          voices,
+          gender,
+          companionName,
+          voiceSettings.voiceName
+        );
 
-          if (!selected) {
-            selected =
-              voices.find(
-                (v) =>
-                  v.lang.startsWith('en') &&
-                  (v.name.includes('Female') ||
-                    v.name.includes('Natural') ||
-                    v.name.includes('Zira') ||
-                    v.name.includes('Samantha') ||
-                    v.name.includes('Google') ||
-                    v.name.includes('Jenny'))
-              ) ||
-              voices.find((v) => v.lang.startsWith('en')) ||
-              voices[0];
-          }
-
-          if (selected) {
-            utterance.voice = selected;
-            utterance.lang = selected.lang || 'en-US';
-          }
+        if (selection.voice) {
+          utterance.voice = selection.voice;
+          utterance.lang = selection.voice.lang || 'en-US';
         }
+
+        // Apply pitch:
+        // Use user-customized pitch if explicitly configured, but enforce gender acoustic formant
+        let effectivePitch = voiceSettings.pitch;
+        if (voiceSettings.pitch === 1.0) {
+          effectivePitch = selection.pitch;
+        }
+        if (gender === 'male' && effectivePitch > 0.95) {
+          effectivePitch = selection.pitch <= 0.88 ? selection.pitch : 0.86;
+        } else if (gender === 'female' && effectivePitch < 0.95) {
+          effectivePitch = selection.pitch >= 1.0 ? selection.pitch : 1.04;
+        }
+
+        utterance.pitch = effectivePitch;
+        utterance.rate = voiceSettings.speechRate;
 
         utterance.onstart = () => {
           if (sessionId === activeSessionIdRef.current) {
@@ -319,7 +357,7 @@ export function useLiveVoiceCompanion({
         setState('idle');
       }
     },
-    [availableVoices, voiceSettings]
+    [availableVoices, companionGender, companionName, voiceSettings]
   );
 
   // Submit audio to backend voice turn orchestration
@@ -383,12 +421,13 @@ export function useLiveVoiceCompanion({
         setLastCompanionSpeech(replyText);
         setErrorMessage(null);
 
-        // Play companion response
-        const isMockBackend = data.tts_provider === 'mock' || !data.audio_base64;
-        if (voiceSettings.ttsEngine === 'browser' || isMockBackend) {
-          playBrowserSpeech(replyText, currentSessionId);
+        // Play companion response:
+        // When backend provides audio_base64 and user hasn't explicitly forced browser-only,
+        // play the high-fidelity neural audio
+        if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
+          playAssistantAudio(data.audio_base64, replyText, currentSessionId, data.audio_format || 'audio/mpeg');
         } else {
-          playAssistantAudio(data.audio_base64, replyText, currentSessionId);
+          playBrowserSpeech(replyText, currentSessionId);
         }
       } catch (err: unknown) {
         const errorObj = err as { name?: string; message?: string } | null;

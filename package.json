@@ -7,7 +7,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
+    "start": "./start.sh",
+    "dev": "./start.sh",
+    "dev:all": "./start.sh --all",
+    "dev:infra": "./start.sh --infra-only",
+    "dev:web": "turbo run dev --filter=@ai-companion/web",
+    "dev:api": "turbo run dev --filter=@ai-companion/api",
+    "dev:mobile": "turbo run dev --filter=@ai-companion/mobile",
+    "dev:turbo": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

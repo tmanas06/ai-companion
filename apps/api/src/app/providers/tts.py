@@ -147,10 +147,74 @@ class SystemTTSProvider(BaseTextToSpeechProvider):
             raise ValueError(f"System TTS synthesis failed: {e}") from e
 
 
+class EdgeTTSProvider(BaseTextToSpeechProvider):
+    """High-fidelity, studio-grade neural speech synthesis via Edge TTS."""
+
+    VOICE_MAP = {
+        "marcus": "en-US-GuyNeural",
+        "atlas": "en-US-ChristopherNeural",
+        "kai": "en-US-AndrewNeural",
+        "aria": "en-US-JennyNeural",
+        "luna": "en-US-AvaNeural",
+        "nova": "en-US-AriaNeural",
+        "sage": "en-US-MichelleNeural",
+        "maya": "en-CA-ClaraNeural",
+    }
+
+    def __init__(self, default_voice: str = "en-US-JennyNeural"):
+        self._default_voice = default_voice
+
+    @property
+    def provider_type(self) -> str:
+        return "edge-tts"
+
+    @property
+    def default_voice(self) -> str:
+        return self._default_voice
+
+    def resolve_voice(self, voice: Optional[str] = None) -> str:
+        if not voice:
+            return self._default_voice
+        if "neural" in voice.lower():
+            return voice
+        v_clean = voice.strip().lower()
+        if v_clean in self.VOICE_MAP:
+            return self.VOICE_MAP[v_clean]
+        if "female" in v_clean or any(kw in v_clean for kw in ("zira", "jenny", "samantha", "woman")):
+            return "en-US-JennyNeural"
+        if "male" in v_clean or any(kw in v_clean for kw in ("david", "guy", "alex", "daniel", "man")):
+            return "en-US-GuyNeural"
+        return self._default_voice
+
+    async def synthesize(self, text: str, voice: Optional[str] = None, speed: float = 1.0) -> bytes:
+        if not text or not text.strip():
+            return b""
+        if "FAIL_SYNTHESIS" in text:
+            raise ValueError("TTS synthesis failed intentionally")
+
+        import edge_tts
+
+        selected_voice = self.resolve_voice(voice)
+        rate_str = "+0%"
+        if speed != 1.0:
+            pct = int((speed - 1.0) * 100)
+            rate_str = f"+{pct}%" if pct >= 0 else f"{pct}%"
+
+        try:
+            communicate = edge_tts.Communicate(text.strip(), selected_voice, rate=rate_str)
+            audio_chunks: list[bytes] = []
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_chunks.append(chunk["data"])
+            return b"".join(audio_chunks)
+        except Exception as e:
+            raise ValueError(f"Edge TTS synthesis failed: {e}") from e
+
+
 def get_tts_provider(provider_type: Optional[str] = None) -> BaseTextToSpeechProvider:
     """Factory resolving TTS provider with privacy mode validation."""
     privacy_mode = settings.PRIVACY_MODE
-    req_type = (provider_type or getattr(settings, "TTS_PROVIDER", None) or "mock").lower().strip()
+    req_type = (provider_type or getattr(settings, "TTS_PROVIDER", None) or "edge-tts").lower().strip()
 
     if req_type in ("cloud", "elevenlabs", "openai", "azure", "aws-polly", "google"):
         if privacy_mode in ("strict-local", "private-machine"):
@@ -158,6 +222,8 @@ def get_tts_provider(provider_type: Optional[str] = None) -> BaseTextToSpeechPro
                 f"Hosted cloud TTS provider '{req_type}' is prohibited under {privacy_mode} privacy mode."
             )
 
+    if req_type in ("edge-tts", "edgetts", "neural"):
+        return EdgeTTSProvider(default_voice=getattr(settings, "TTS_VOICE", "en-US-JennyNeural"))
     if req_type == "piper":
         return PiperTTSProvider(voice_model=getattr(settings, "TTS_VOICE", "en_US-lessac-medium"))
     if req_type == "system":

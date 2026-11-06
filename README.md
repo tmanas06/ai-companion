@@ -60,14 +60,32 @@ cd apps/api && uv run alembic upgrade head && cd ../..
 
 ### Development
 
-```bash
-# Start all development servers
-pnpm dev
+Start the entire project (Docker infrastructure, database migrations, Web frontend, and FastAPI backend) with a single command:
 
-# Or individually:
-# Web:     cd apps/web && pnpm dev          # http://localhost:3000
-# Mobile:  cd apps/mobile && pnpm dev       # Expo dev server
-# API:     cd apps/api && uv run fastapi dev # http://localhost:8000
+```bash
+pnpm start
+# or
+./start.sh
+```
+
+Available startup options:
+
+```bash
+# Start Web + API + Mobile (Expo) development servers:
+pnpm dev:all
+# or: ./start.sh --all
+
+# Start only Docker infrastructure (PostgreSQL, Redis, MinIO) & run migrations:
+pnpm dev:infra
+# or: ./start.sh --infra-only
+
+# Stop Docker infrastructure containers:
+./start.sh --down
+
+# Or start services individually:
+pnpm dev:web     # Web (Next.js):     http://localhost:3000
+pnpm dev:api     # API (FastAPI):     http://localhost:8000
+pnpm dev:mobile  # Mobile (Expo):     Metro bundler
 ```
 
 ### Database

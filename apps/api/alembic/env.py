@@ -20,7 +20,12 @@ if config.config_file_name is not None:
 
 target_metadata = User.metadata
 
-config.set_main_option("sqlalchemy.url", str(settings.DATABASE_URL))
+db_url = (
+    str(settings.DATABASE_URL)
+    .replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    .replace("postgresql://", "postgresql+asyncpg://")
+)
+config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:

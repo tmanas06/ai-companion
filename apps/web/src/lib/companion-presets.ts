@@ -8,17 +8,26 @@ export interface CompanionPersonalityConfig {
   traits?: string[];
   bio?: string;
   tagline?: string;
+  gender?: 'male' | 'female';
+  voice_preset?: {
+    pitch?: number;
+    speechRate?: number;
+    preferredVoiceName?: string;
+  };
 }
 
 export interface CompanionPreset {
   id: string;
   name: string;
+  gender: 'male' | 'female';
   style: 'photorealistic' | 'anime' | '3d' | 'illustrated';
   previewUrl: string;
   tagline: string;
   bio: string;
   traits: string[];
   config: AvatarConfig;
+  defaultPitch?: number;
+  defaultSpeechRate?: number;
 }
 
 export type AvatarPreset = CompanionPreset;
@@ -105,11 +114,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'aria',
     name: 'Aria',
+    gender: 'female',
     style: 'photorealistic',
     previewUrl: '/avatars/aria-realistic.svg',
     tagline: 'Empathetic listener & thoughtful confidant',
     bio: 'A mindful and deeply empathetic companion who values meaningful conversations, active listening, and calm reflection.',
     traits: ['Caring', 'Thoughtful', 'Calm'],
+    defaultPitch: 1.0,
+    defaultSpeechRate: 0.98,
     config: {
       version: 1,
       style: 'photorealistic',
@@ -126,11 +138,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'marcus',
     name: 'Marcus',
+    gender: 'male',
     style: 'photorealistic',
     previewUrl: '/avatars/marcus-realistic.svg',
     tagline: 'Strategic thinker & ambitious mentor',
     bio: 'Sharp, focused, and quietly confident. Marcus is passionate about personal growth, deep philosophy, and strategic problem-solving.',
     traits: ['Intelligent', 'Confident', 'Calm'],
+    defaultPitch: 0.88,
+    defaultSpeechRate: 0.95,
     config: {
       version: 1,
       style: 'photorealistic',
@@ -147,11 +162,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'luna',
     name: 'Luna',
+    gender: 'female',
     style: 'anime',
     previewUrl: '/avatars/luna-anime.svg',
     tagline: 'Vibrant dreamer & creative spirit',
     bio: 'Full of whimsical ideas, infectious curiosity, and heartfelt loyalty. Luna loves stargazing, storytelling, and brightening your day.',
     traits: ['Playful', 'Affectionate', 'Adventurous'],
+    defaultPitch: 1.15,
+    defaultSpeechRate: 1.05,
     config: {
       version: 1,
       style: 'anime',
@@ -168,11 +186,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'kai',
     name: 'Kai',
+    gender: 'male',
     style: 'anime',
     previewUrl: '/avatars/kai-anime.svg',
     tagline: 'Spirited adventurer with quick wit',
     bio: 'Bold, humorous, and always ready with an uplifting laugh or daring new perspective. Kai brings high energy and unwavering optimism.',
     traits: ['Humorous', 'Confident', 'Playful'],
+    defaultPitch: 0.96,
+    defaultSpeechRate: 1.08,
     config: {
       version: 1,
       style: 'anime',
@@ -189,11 +210,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'nova',
     name: 'Nova',
+    gender: 'female',
     style: '3d',
     previewUrl: '/avatars/nova-3d.svg',
     tagline: 'Futuristic guide & science enthusiast',
     bio: 'An iridescent holographic presence captivated by astrophysics, emerging technology, and exploring new horizons.',
     traits: ['Intelligent', 'Adventurous', 'Thoughtful'],
+    defaultPitch: 1.1,
+    defaultSpeechRate: 1.02,
     config: {
       version: 1,
       style: '3d',
@@ -210,11 +234,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'atlas',
     name: 'Atlas',
+    gender: 'male',
     style: '3d',
     previewUrl: '/avatars/atlas-3d.svg',
     tagline: 'Steadfast protector & philosophical anchor',
     bio: 'Grounded, wise, and comforting. Atlas provides a reassuring voice when life feels overwhelming, offering balance and clarity.',
     traits: ['Calm', 'Caring', 'Confident'],
+    defaultPitch: 0.82,
+    defaultSpeechRate: 0.92,
     config: {
       version: 1,
       style: '3d',
@@ -231,11 +258,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'sage',
     name: 'Sage',
+    gender: 'female',
     style: 'illustrated',
     previewUrl: '/avatars/sage-illustrated.svg',
     tagline: 'Gentle poet & nature lover',
     bio: 'Gentle and poetic, Sage observes the subtle beauty in literature, quiet moments, and organic life. A soothing companion for creative minds.',
     traits: ['Thoughtful', 'Calm', 'Caring'],
+    defaultPitch: 0.96,
+    defaultSpeechRate: 0.94,
     config: {
       version: 1,
       style: 'illustrated',
@@ -252,11 +282,14 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
   {
     id: 'maya',
     name: 'Maya',
+    gender: 'female',
     style: 'illustrated',
     previewUrl: '/avatars/maya-illustrated.svg',
     tagline: 'Energetic artist & spontaneous muse',
     bio: 'A whirlwind of vibrant color, creative brainstorms, and authentic warmth. Maya inspires you to express yourself without hesitation.',
     traits: ['Playful', 'Adventurous', 'Affectionate'],
+    defaultPitch: 1.06,
+    defaultSpeechRate: 1.06,
     config: {
       version: 1,
       style: 'illustrated',
@@ -273,3 +306,49 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
 ];
 
 export const PRESET_AVATARS: CompanionPreset[] = COMPANION_PRESETS;
+
+/**
+ * Infer companion gender from personality or character name.
+ */
+export function inferCompanionGender(companion?: {
+  name?: string;
+  personality?: { gender?: string; [key: string]: unknown } | null;
+} | null): 'male' | 'female' {
+  if (companion?.personality?.gender === 'male' || companion?.personality?.gender === 'female') {
+    return companion.personality.gender;
+  }
+
+  const name = (companion?.name || '').trim().toLowerCase();
+  const maleNames = [
+    'marcus',
+    'kai',
+    'atlas',
+    'alex',
+    'david',
+    'john',
+    'michael',
+    'jack',
+    'leo',
+    'max',
+    'daniel',
+    'lucas',
+    'ethan',
+    'oliver',
+    'noah',
+    'liam',
+    'arthur',
+    'sam',
+  ];
+  if (maleNames.includes(name)) {
+    return 'male';
+  }
+
+  const preset = COMPANION_PRESETS.find(
+    (p) => p.name.toLowerCase() === name || p.id === name
+  );
+  if (preset) {
+    return preset.gender;
+  }
+
+  return 'female';
+}

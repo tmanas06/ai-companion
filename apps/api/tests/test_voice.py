@@ -224,3 +224,20 @@ async def test_voice_turn_orchestration_service():
     assert turn_res.audio_base64 is not None
     assert turn_res.audio_format == "audio/wav"
 
+
+def test_edge_tts_provider_resolution():
+    from app.providers.tts import EdgeTTSProvider
+
+    provider = EdgeTTSProvider()
+    assert provider.resolve_voice("Marcus") == "en-US-GuyNeural"
+    assert provider.resolve_voice("Atlas") == "en-US-ChristopherNeural"
+    assert provider.resolve_voice("Kai") == "en-US-AndrewNeural"
+    assert provider.resolve_voice("Aria") == "en-US-JennyNeural"
+    assert provider.resolve_voice("Luna") == "en-US-AvaNeural"
+    assert provider.resolve_voice("Nova") == "en-US-AriaNeural"
+    assert provider.resolve_voice("Sage") == "en-US-MichelleNeural"
+    assert provider.resolve_voice("Maya") == "en-CA-ClaraNeural"
+    assert provider.resolve_voice("en-US-BrianNeural") == "en-US-BrianNeural"
+    assert provider.resolve_voice("unknown male character") == "en-US-GuyNeural"
+    assert provider.resolve_voice("unknown female character") == "en-US-JennyNeural"
+

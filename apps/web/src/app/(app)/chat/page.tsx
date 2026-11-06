@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { CompanionPersonalityConfig } from '@/lib/companion-presets';
+import { CompanionPersonalityConfig, inferCompanionGender } from '@/lib/companion-presets';
 import { AvatarRenderer } from '@/components/companion/AvatarRenderer';
 import { useLiveVoiceCompanion } from '@/hooks/useLiveVoiceCompanion';
 import { VoiceSettingsModal } from '@/components/companion/VoiceSettingsModal';
@@ -43,6 +43,9 @@ function LiveCompanionStage() {
   const [textInput, setTextInput] = useState('');
   const [showCompanionSwitcher, setShowCompanionSwitcher] = useState(false);
 
+  // Infer gender for the selected companion
+  const companionGender = inferCompanionGender(selectedCompanion);
+
   // Initialize Voice Session Hook
   const {
     state,
@@ -61,6 +64,8 @@ function LiveCompanionStage() {
   } = useLiveVoiceCompanion({
     companionId: selectedCompanion?.id,
     conversationId: activeConversationId,
+    companionGender,
+    companionName: selectedCompanion?.name,
     onConversationCreated: (newId) => setActiveConversationId(newId),
   });
 
@@ -627,6 +632,8 @@ function LiveCompanionStage() {
         onUpdateSettings={setVoiceSettings}
         availableVoices={availableVoices}
         onTestVoice={replaySpeech}
+        companionGender={companionGender}
+        companionName={selectedCompanion?.name}
       />
     </div>
   );

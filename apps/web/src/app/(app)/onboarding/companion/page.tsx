@@ -12,6 +12,7 @@ import {
   AVATAR_STYLES,
   APPEARANCE_OPTIONS,
   CompanionPreset,
+  inferCompanionGender,
 } from '@/lib/companion-presets';
 
 function OnboardingCompanionContent() {
@@ -33,6 +34,7 @@ function OnboardingCompanionContent() {
   const [selectedStyle, setSelectedStyle] = useState<'photorealistic' | 'anime' | '3d' | 'illustrated'>('anime');
   const [selectedTraits, setSelectedTraits] = useState<string[]>(['Playful', 'Affectionate', 'Intelligent']);
   const [previewUrl, setPreviewUrl] = useState<string | null>('/avatars/luna-anime.svg');
+  const [gender, setGender] = useState<'male' | 'female'>('female');
 
   // Layered customization state
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>({
@@ -78,6 +80,11 @@ function OnboardingCompanionContent() {
               if (data.personality.avatar_config) {
                 setAvatarConfig(data.personality.avatar_config);
               }
+              if (data.personality.gender === 'male' || data.personality.gender === 'female') {
+                setGender(data.personality.gender);
+              } else {
+                setGender(inferCompanionGender(data));
+              }
               if (data.personality.avatar_preview_url) {
                 setPreviewUrl(data.personality.avatar_preview_url);
               }
@@ -102,6 +109,7 @@ function OnboardingCompanionContent() {
     setSelectedTraits([...preset.traits]);
     setPreviewUrl(preset.previewUrl);
     setAvatarConfig(JSON.parse(JSON.stringify(preset.config)));
+    setGender(preset.gender || 'female');
     setStep(2);
   }
 
@@ -112,6 +120,7 @@ function OnboardingCompanionContent() {
     setSelectedStyle('anime');
     setSelectedTraits(['Caring', 'Intelligent', 'Thoughtful']);
     setPreviewUrl(null); // Force dynamic SVG layer rendering
+    setGender('female');
     setAvatarConfig({
       version: 1,
       style: 'anime',
@@ -175,6 +184,7 @@ function OnboardingCompanionContent() {
         style: selectedStyle,
         avatar_preview_url: previewUrl,
         avatar_config: avatarConfig,
+        gender: gender,
       };
 
       let companionId = editId;
@@ -697,6 +707,51 @@ function OnboardingCompanionContent() {
                         maxLength={50}
                         className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
                       />
+                    </div>
+
+                    {/* Avatar Gender & Voice Selection */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                        Avatar Gender & Voice Persona
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setGender('female')}
+                          className={cn(
+                            'p-3.5 rounded-2xl border text-left transition flex items-start space-x-3',
+                            gender === 'female'
+                              ? 'bg-pink-600/15 border-pink-500 text-pink-200 shadow-sm'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                          )}
+                        >
+                          <div className={cn('w-7 h-7 rounded-xl flex items-center justify-center font-bold text-sm shrink-0', gender === 'female' ? 'bg-pink-500 text-white' : 'bg-slate-800 text-slate-400')}>
+                            ♀
+                          </div>
+                          <div>
+                            <div className="font-semibold text-xs text-white">Female Voice</div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Natural feminine tone, distinct resonance</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGender('male')}
+                          className={cn(
+                            'p-3.5 rounded-2xl border text-left transition flex items-start space-x-3',
+                            gender === 'male'
+                              ? 'bg-blue-600/15 border-blue-500 text-blue-200 shadow-sm'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                          )}
+                        >
+                          <div className={cn('w-7 h-7 rounded-xl flex items-center justify-center font-bold text-sm shrink-0', gender === 'male' ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400')}>
+                            ♂
+                          </div>
+                          <div>
+                            <div className="font-semibold text-xs text-white">Male Voice</div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Natural masculine tone, deep acoustic resonance</p>
+                          </div>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Personality Traits Selection */}

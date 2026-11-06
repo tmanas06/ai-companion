@@ -30,11 +30,12 @@ export async function POST(request: NextRequest) {
     }
 
     const audioBuffer = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || 'audio/mpeg';
     return new NextResponse(audioBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/wav',
-        'Content-Disposition': 'inline; filename="speech.wav"',
+        'Content-Type': contentType,
+        'Content-Disposition': 'inline; filename="speech.audio"',
         'Cache-Control': 'no-cache',
       },
     });
