@@ -347,4 +347,121 @@ describe('AvatarRenderer', () => {
     );
     expect(speakLayer).toBeInTheDocument();
   });
+
+  /* ================= EXPRESSION & ANIMATION TESTS ================= */
+
+  it('renders expression overlay layer for Aria when expression is happy, thoughtful, or concerned', () => {
+    const expressions = [
+      { type: 'happy' as const, file: 'aria-happy.webp' },
+      { type: 'thoughtful' as const, file: 'aria-thoughtful.webp' },
+      { type: 'concerned' as const, file: 'aria-concerned.webp' },
+    ];
+
+    for (const item of expressions) {
+      const { container } = render(
+        <AvatarRenderer
+          name="Aria"
+          previewUrl="/avatars/aria-portrait.webp"
+          expression={item.type}
+        />
+      );
+
+      const exprLayer = container.querySelector('[data-testid="avatar-expression-layer"]');
+      expect(exprLayer).toBeInTheDocument();
+      const img = exprLayer?.querySelector('img');
+      expect(img).toBeInTheDocument();
+      expect(img?.getAttribute('src')).toContain(item.file);
+    }
+  });
+
+  it('does not render expression overlay when expression is neutral or omitted', () => {
+    const { container, rerender } = render(
+      <AvatarRenderer
+        name="Aria"
+        previewUrl="/avatars/aria-portrait.webp"
+      />
+    );
+    expect(container.querySelector('[data-testid="avatar-expression-layer"]')).not.toBeInTheDocument();
+
+    rerender(
+      <AvatarRenderer
+        name="Aria"
+        previewUrl="/avatars/aria-portrait.webp"
+        expression="neutral"
+      />
+    );
+    expect(container.querySelector('[data-testid="avatar-expression-layer"]')).not.toBeInTheDocument();
+  });
+
+  it('gracefully falls back to neutral portrait without errors if expression image fails to load', () => {
+    const { container } = render(
+      <AvatarRenderer
+        name="Aria"
+        previewUrl="/avatars/aria-portrait.webp"
+        expression="happy"
+      />
+    );
+
+    const exprLayer = container.querySelector('[data-testid="avatar-expression-layer"]');
+    expect(exprLayer).toBeInTheDocument();
+    const exprImg = exprLayer?.querySelector('img');
+    expect(exprImg).toBeInTheDocument();
+
+    // Expression image triggers load error (e.g. 404 / missing asset)
+    fireEvent.error(exprImg!);
+
+    // Expression layer is cleanly unmounted
+    expect(container.querySelector('[data-testid="avatar-expression-layer"]')).not.toBeInTheDocument();
+
+    // Base portrait remains intact and visible (does NOT fall back to initials SVG)
+    const baseImg = container.querySelector('img');
+    expect(baseImg).toBeInTheDocument();
+    expect(baseImg?.getAttribute('src')).toBe('/avatars/aria-portrait.webp');
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+  });
+
+  it('composites blink and speak layers cleanly on top of expression layer', () => {
+    const { container } = render(
+      <AvatarRenderer
+        name="Aria"
+        previewUrl="/avatars/aria-portrait.webp"
+        expression="happy"
+        state="speaking"
+        isSpeaking={true}
+        audioLevel={0.7}
+      />
+    );
+
+    expect(container.querySelector('[data-testid="avatar-expression-layer"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="avatar-speak-layer"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="avatar-blink-layer"]')).toBeInTheDocument();
+  });
+
+  it('applies transition-none on expression layer when reduced motion is preferred', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = jest.fn().mockImplementation((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    }));
+
+    const { container } = render(
+      <AvatarRenderer
+        name="Aria"
+        previewUrl="/avatars/aria-portrait.webp"
+        expression="happy"
+      />
+    );
+
+    const exprLayer = container.querySelector('[data-testid="avatar-expression-layer"]');
+    expect(exprLayer).toBeInTheDocument();
+    expect(exprLayer?.className).toContain('transition-none');
+
+    window.matchMedia = originalMatchMedia;
+  });
 });

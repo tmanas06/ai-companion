@@ -19,7 +19,7 @@ import {
   DEFAULT_AVATAR_3D_CONFIG,
   SupportedBaseModelId,
 } from '@ai-companion/shared';
-import { ThreeSceneManager, CameraPreset } from './ThreeSceneManager';
+import { ThreeSceneManager, CameraPreset, WordAlignment } from './ThreeSceneManager';
 import { Avatar2DFallback } from './Avatar2DFallback';
 import { getApiBaseUrl } from '../../services/api-client';
 import { getCachedModelUri } from '../../services/model-cache-manager';
@@ -30,6 +30,7 @@ export interface MobileAvatarRendererProps {
   isSpeaking?: boolean;
   isListening?: boolean;
   audioLevel?: number;
+  wordAlignment?: WordAlignment | null;
   testID?: string;
   force2D?: boolean;
   onLoaded?: () => void;
@@ -42,6 +43,7 @@ export function MobileAvatarRenderer({
   isSpeaking = false,
   isListening = false,
   audioLevel = 0,
+  wordAlignment = null,
   testID = 'mobile-avatar-renderer',
   force2D = false,
   onLoaded,
@@ -98,10 +100,13 @@ export function MobileAvatarRenderer({
     sceneManagerRef.current?.setCameraPreset(cameraPreset);
   }, [cameraPreset]);
 
-  // Update speech state & audio levels
+  // Update speech state, audio levels, and word alignment
   useEffect(() => {
     sceneManagerRef.current?.setVoiceState(isSpeaking, audioLevel);
-  }, [isSpeaking, audioLevel]);
+    if (wordAlignment) {
+      sceneManagerRef.current?.setWordAlignment(wordAlignment);
+    }
+  }, [isSpeaking, audioLevel, wordAlignment]);
 
   // Cleanup on unmount
   useEffect(() => {

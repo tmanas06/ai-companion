@@ -7,6 +7,7 @@
  * - Push-to-talk and text-fallback conversation input
  * - Natural blinking schedule and clean GPU disposal on unmount
  * - Resilient: speech & conversation continue even if 3D renderer falls back to 2D
+ * - Streaming TTS with word-level timestamps for viseme animation
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -20,7 +21,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  Image,
+  Animated,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import {
   Avatar3DConfig,
   DEFAULT_AVATAR_3D_CONFIG,
@@ -31,13 +36,392 @@ import {
   getActiveAvatar,
   getCachedAvatar,
 } from '../../src/services/avatar-service';
-import { fetchWithAuth } from '../../src/services/api-client';
+import { fetchWithAuth, getApiBaseUrl } from '../../src/services/api-client';
+import { getAccessToken } from '../../src/services/auth-storage';
+
+type AvatarDisplayMode = '3d' | 'photorealistic-2d';
 
 interface ChatMessage {
   id: string;
   sender: 'user' | 'companion';
   text: string;
   timestamp: Date;
+}
+
+interface WordAlignment {
+  words: string[];
+  word_start_times_seconds: number[];
+  word_end_times_seconds: number[];
+}
+
+interface AvatarAssets {
+  portraitUrl: string;
+  blinkUrl: string | null;
+  speakUrl: string | null;
+}
+
+interface CompanionLandmarks {
+  eyeX: string;
+  eyeY: string;
+  eyeWidth: string;
+  eyeHeight: string;
+  mouthX: string;
+  mouthY: string;
+  mouthWidth: string;
+  mouthHeight: string;
+}
+
+function resolveCompanionLandmarks(name: string): CompanionLandmarks {
+  const nameLower = name.toLowerCase();
+  
+  if (nameLower.includes('marcus')) {
+    return {
+      eyeX: '52.8%',
+      eyeY: '34.4%',
+      eyeWidth: '34%',
+      eyeHeight: '16%',
+      mouthX: '53.0%',
+      mouthY: '57.3%',
+      mouthWidth: '30%',
+      mouthHeight: '18%',
+    };
+  }
+  if (nameLower.includes('elena')) {
+    return {
+      eyeX: '51.0%',
+      eyeY: '33.8%',
+      eyeWidth: '36%',
+      eyeHeight: '16%',
+      mouthX: '52.3%',
+      mouthY: '51.9%',
+      mouthWidth: '32%',
+      mouthHeight: '18%',
+    };
+  }
+  if (nameLower.includes('liam')) {
+    return {
+      eyeX: '51.6%',
+      eyeY: '38.3%',
+      eyeWidth: '36%',
+      eyeHeight: '16%',
+      mouthX: '51.5%',
+      mouthY: '60.9%',
+      mouthWidth: '32%',
+      mouthHeight: '18%',
+    };
+  }
+  // Default: Aria
+  return {
+    eyeX: '49.6%',
+    eyeY: '36.0%',
+    eyeWidth: '36%',
+    eyeHeight: '16%',
+    mouthX: '50.1%',
+    mouthY: '58.5%',
+    mouthWidth: '30%',
+    mouthHeight: '18%',
+  };
+}
+
+/**
+ * Photorealistic2DAvatar Component.
+ * High-fidelity 2D avatar using layered images (portrait, blink, speak) with mask-based animations.
+ * Mirrors the web AvatarRenderer behavior for consistent cross-platform experience.
+ */
+interface Photorealistic2DAvatarProps {
+  assets: AvatarAssets;
+  landmarks: CompanionLandmarks;
+  name: string;
+  isSpeaking: boolean;
+  isListening: boolean;
+  audioLevel: number;
+  state: 'idle' | 'listening' | 'processing_speech' | 'generating_response' | 'speaking' | 'interrupted' | 'error';
+  size?: number;
+  testID?: string;
+  reducedMotion?: boolean;
+}
+
+function Photorealistic2DAvatar({
+  assets,
+  landmarks,
+  name,
+  isSpeaking,
+  isListening,
+  audioLevel,
+  state,
+  size = 280,
+  testID = 'photorealistic-2d-avatar',
+  reducedMotion = false,
+}: Photorealistic2DAvatarProps) {
+  const [isBlinking, setIsBlinking] = useState(false);
+  const [mouthIntensity, setMouthIntensity] = useState(0);
+  const [imageError, setImageError] = useState(false);
+  const blinkTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const activeSpeaking = isSpeaking || state === 'speaking';
+
+  // Periodic natural human blink cycle
+  useEffect(() => {
+    let active = true;
+
+    const triggerNextBlink = () => {
+      const baseDelay = isListening ? 4500 : 3200;
+      const jitter = isListening ? 3000 : 2600;
+      const delay = baseDelay + Math.random() * jitter;
+
+      blinkTimerRef.current = setTimeout(() => {
+        if (!active) return;
+        setIsBlinking(true);
+        setTimeout(() => {
+          if (!active) return;
+          setIsBlinking(false);
+          triggerNextBlink();
+        }, 140);
+      }, delay);
+    };
+
+    triggerNextBlink();
+
+    return () => {
+      active = false;
+      if (blinkTimerRef.current) {
+        clearTimeout(blinkTimerRef.current);
+        blinkTimerRef.current = null;
+      }
+    };
+  }, [isListening]);
+
+  // Speech mouth movement using amplitude envelope
+  useEffect(() => {
+    if (!activeSpeaking) {
+      setMouthIntensity(0);
+      return;
+    }
+
+    let animId: number;
+
+    const animateMouth = () => {
+      let target = 0;
+      if (audioLevel > 0.03) {
+        target = Math.min(1.0, audioLevel * 1.5);
+      } else {
+        target = 0.0;
+      }
+
+      setMouthIntensity((prev) => {
+        const next = prev + (target - prev) * 0.40;
+        return next < 0.01 ? 0 : next;
+      });
+
+      animId = requestAnimationFrame(animateMouth);
+    };
+
+    animId = requestAnimationFrame(animateMouth);
+
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [activeSpeaking, audioLevel]);
+
+  // Voice state visual aura
+  const stateAura = (() => {
+    switch (state) {
+      case 'listening':
+        return 'border-emerald-400/80 shadow-[0_0_40px_rgba(52,211,153,0.35)]';
+      case 'processing_speech':
+      case 'generating_response':
+        return 'border-indigo-500/80 shadow-[0_0_40px_rgba(99,102,241,0.4)]';
+      case 'speaking':
+        return 'border-violet-500/80 shadow-[0_0_45px_rgba(139,92,246,0.45)]';
+      case 'interrupted':
+        return 'border-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.3)]';
+      case 'error':
+        return 'border-rose-500/80 shadow-[0_0_30px_rgba(244,63,94,0.35)]';
+      default:
+        return 'border-slate-800 shadow-2xl';
+    }
+  })();
+
+  // Natural state posture transform
+  const postureTransform = (() => {
+    if (reducedMotion) return { transform: [] };
+    switch (state) {
+      case 'listening':
+        return { transform: [{ scale: 1.015 }, { rotate: '-1deg' }, { translateY: -1 }] };
+      case 'processing_speech':
+      case 'generating_response':
+        return { transform: [{ scale: 1.008 }, { rotate: '1deg' }, { translateY: -1 }] };
+      case 'speaking':
+        return { transform: [{ scale: 1.01 }, { translateY: -1 }] };
+      case 'interrupted':
+        return { transform: [{ scale: 1.0 }, { translateY: 0 }] };
+      default:
+        return { transform: [{ scale: 1.0 }, { translateY: 0 }] };
+    }
+  })();
+
+  // Fallback state when image loading failed
+  if (imageError || !assets) {
+    const initials = (name || 'AI')
+      .split(' ')
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    return (
+      <View
+        testID={testID}
+        style={[
+          styles2D.avatarContainer,
+          { width: size, height: size },
+          { borderWidth: 2, borderColor: state === 'speaking' ? '#8b5cf6' : state === 'listening' ? '#22c55e' : '#334155' },
+        ]}
+        accessibilityLabel={name}
+      >
+        <Text style={styles2D.fallbackInitials}>{initials}</Text>
+      </View>
+    );
+  }
+
+  const { portraitUrl, blinkUrl, speakUrl } = assets;
+
+  return (
+    <View
+      testID={testID}
+      style={[
+        styles2D.avatarContainer,
+        { width: size, height: size },
+        { borderWidth: 2, borderColor: state === 'speaking' ? '#8b5cf6' : state === 'listening' ? '#22c55e' : '#334155' },
+      ]}
+    >
+      {/* Speaking/Listening ripple rings */}
+      {(activeSpeaking || isListening) && !reducedMotion && (
+        <View
+          style={[
+            styles2D.rippleRing,
+            {
+              borderColor: activeSpeaking ? 'rgba(139, 92, 246, 0.4)' : 'rgba(34, 197, 94, 0.4)',
+            },
+          ]}
+        />
+      )}
+
+      {/* Head Motion Container */}
+      <Animated.View
+        style={[
+          styles2D.headContainer,
+          postureTransform,
+          !reducedMotion && styles2D.breatheAnimation,
+        ]}
+      >
+        {/* Base Photorealistic Portrait */}
+        <Image
+          source={{ uri: portraitUrl }}
+          style={styles2D.portraitImage}
+          onError={() => setImageError(true)}
+        />
+
+        {/* Natural Eyelid Blink Layer */}
+        {blinkUrl && (
+          <Animated.View
+            style={[
+              styles2D.blinkLayer,
+              {
+                opacity: isBlinking ? 1 : 0,
+                // Note: React Native doesn't support CSS mask-image directly
+                // Using a simplified approach with absolute positioning
+              },
+            ]}
+          >
+            <Image source={{ uri: blinkUrl }} style={styles2D.layerImage} />
+          </Animated.View>
+        )}
+
+        {/* Speech Mouth Layer */}
+        {speakUrl && activeSpeaking && (
+          <Animated.View
+            style={[
+              styles2D.speakLayer,
+              {
+                opacity: Math.min(1.0, mouthIntensity * 1.15),
+              },
+            ]}
+          >
+            <Image source={{ uri: speakUrl }} style={styles2D.layerImage} />
+          </Animated.View>
+        )}
+      </Animated.View>
+    </View>
+  );
+}
+
+const styles2D = StyleSheet.create({
+  avatarContainer: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#020617',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rippleRing: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderWidth: 2,
+    borderRadius: 24,
+  },
+  headContainer: {
+    width: '100%',
+    height: '100%',
+    transformOrigin: '50% 70%',
+  },
+  breatheAnimation: {
+    // Animation handled by Animated.View style
+  },
+  portraitImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  blinkLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  speakLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  layerImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  fallbackInitials: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#64748b',
+  },
+});
+
+interface WordAlignment {
+  words: string[];
+  word_start_times_seconds: number[];
+  word_end_times_seconds: number[];
+}
+
+interface AvatarAssets {
+  portraitUrl: string;
+  blinkUrl: string | null;
+  speakUrl: string | null;
 }
 
 export default function ChatScreen() {
@@ -63,9 +447,27 @@ export default function ChatScreen() {
   const [isSending, setIsSending] = useState<boolean>(false);
   const [showTextInput, setShowTextInput] = useState<boolean>(false);
   const [companionName, setCompanionName] = useState<string>('Aria');
+  const [currentAlignment, setCurrentAlignment] = useState<WordAlignment | null>(null);
+  const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
+    try {
+      const saved = localStorage.getItem('ai_companion_display_mode');
+      if (saved && ['3d', 'photorealistic-2d'].includes(saved)) {
+        return saved as AvatarDisplayMode;
+      }
+    } catch (e) {
+      // Ignored
+    }
+    return 'photorealistic-2d';
+  });
+  const [avatarAssets, setAvatarAssets] = useState<AvatarAssets | null>(null);
 
   const speechTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<number>(0);
+  const audioChunksRef = useRef<string[]>([]);
+  const isPlayingRef = useRef<boolean>(false);
 
   // 1. Fetch authenticated active avatar on mount or focus
   const loadAvatar = useCallback(async () => {
@@ -81,19 +483,207 @@ export default function ChatScreen() {
     loadAvatar();
   }, [loadAvatar]);
 
-  // Clean up all timers on unmount
+  // Load photorealistic 2D avatar assets based on companion name
+  useEffect(() => {
+    const baseUrl = getApiBaseUrl();
+    const nameLower = companionName.toLowerCase();
+    let assets: AvatarAssets;
+    
+    if (nameLower.includes('marcus')) {
+      assets = {
+        portraitUrl: `${baseUrl}/avatars/marcus-portrait.webp`,
+        blinkUrl: `${baseUrl}/avatars/marcus-blink.webp`,
+        speakUrl: `${baseUrl}/avatars/marcus-speak.webp`,
+      };
+    } else if (nameLower.includes('elena')) {
+      assets = {
+        portraitUrl: `${baseUrl}/avatars/elena-portrait.webp`,
+        blinkUrl: `${baseUrl}/avatars/elena-blink.webp`,
+        speakUrl: `${baseUrl}/avatars/elena-speak.webp`,
+      };
+    } else if (nameLower.includes('liam')) {
+      assets = {
+        portraitUrl: `${baseUrl}/avatars/liam-portrait.webp`,
+        blinkUrl: `${baseUrl}/avatars/liam-blink.webp`,
+        speakUrl: `${baseUrl}/avatars/liam-speak.webp`,
+      };
+    } else {
+      // Default to Aria
+      assets = {
+        portraitUrl: `${baseUrl}/avatars/aria-portrait.webp`,
+        blinkUrl: `${baseUrl}/avatars/aria-blink.webp`,
+        speakUrl: `${baseUrl}/avatars/aria-speak.webp`,
+      };
+    }
+    setAvatarAssets(assets);
+  }, [companionName]);
+
+  // Persist display mode selection
+  useEffect(() => {
+    try {
+      localStorage.setItem('ai_companion_display_mode', displayMode);
+    } catch (e) {
+      // Ignored
+    }
+  }, [displayMode]);
+
+  // Clean up all timers and audio on unmount
   useEffect(() => {
     return () => {
       if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
       if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
-  // 2. Simulate Companion Speech with Viseme & Audio Modulation
+  // Play companion speech using streaming TTS with word-level timestamps
+  const playCompanionSpeechStreaming = useCallback(async (text: string, voiceName?: string) => {
+    // Cancel any existing playback
+    if (soundRef.current) {
+      try { await soundRef.current.stopAsync(); } catch {}
+      try { await soundRef.current.unloadAsync(); } catch {}
+      soundRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+
+    const currentSessionId = ++sessionIdRef.current;
+    audioChunksRef.current = [];
+    isPlayingRef.current = true;
+
+    setIsSpeaking(true);
+    setIsListening(false);
+    setCurrentAlignment(null);
+
+    // Audio level fluctuation simulating speech formants
+    audioIntervalRef.current = setInterval(() => {
+      setAudioLevel(0.25 + Math.random() * 0.55);
+    }, 90);
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    try {
+      const baseUrl = getApiBaseUrl();
+      const token = await getAccessToken();
+      
+      const res = await fetch(`${baseUrl}/api/v1/voice/synthesize-stream-with-timestamps`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          text,
+          voice: voiceName,
+          turn_id: `turn_${currentSessionId}`,
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Stream failed: ${res.status}`);
+      }
+      if (!res.body) {
+        throw new Error('No response body');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        if (currentSessionId !== sessionIdRef.current) {
+          break; // Interrupted
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const chunk = JSON.parse(trimmed);
+            
+            // Accumulate audio chunks
+            if (chunk.audio) {
+              audioChunksRef.current.push(chunk.audio);
+            }
+            
+            // Handle alignment data for viseme animation
+            if (chunk.alignment?.words && chunk.alignment.words.length > 0) {
+              setCurrentAlignment(chunk.alignment);
+            }
+          } catch {
+            // Ignore malformed NDJSON lines
+          }
+        }
+      }
+
+      // Play accumulated audio
+      if (currentSessionId === sessionIdRef.current && audioChunksRef.current.length > 0 && isPlayingRef.current) {
+        const fullAudioBase64 = audioChunksRef.current.join('');
+        const audioUri = `data:audio/mpeg;base64,${fullAudioBase64}`;
+        
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: audioUri },
+          { shouldPlay: true, isLooping: false, rate: 1.0 },
+          (status) => {
+            if (status.isLoaded && status.didJustFinish && currentSessionId === sessionIdRef.current) {
+              setIsSpeaking(false);
+              setAudioLevel(0);
+              setCurrentAlignment(null);
+              if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+              isPlayingRef.current = false;
+            }
+          }
+        );
+        soundRef.current = sound;
+      } else if (currentSessionId === sessionIdRef.current) {
+        // No audio received, fall back to simulation
+        if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+        setIsSpeaking(false);
+        setAudioLevel(0);
+        isPlayingRef.current = false;
+      }
+    } catch (err: unknown) {
+      if (currentSessionId !== sessionIdRef.current) {
+        return; // Interrupted
+      }
+      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+      setIsSpeaking(false);
+      setAudioLevel(0);
+      isPlayingRef.current = false;
+      
+      // Fallback to simulated speech
+      simulateCompanionSpeech(text);
+    }
+  }, []);
+
+  // 2. Simulate Companion Speech with Viseme & Audio Modulation (fallback)
   const simulateCompanionSpeech = useCallback((text: string) => {
     // Stop any existing speech
     if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
     if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+    if (soundRef.current) {
+      soundRef.current.stopAsync().catch(() => {});
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
 
     setIsSpeaking(true);
     setIsListening(false);
@@ -124,8 +714,21 @@ export default function ChatScreen() {
       clearInterval(audioIntervalRef.current);
       audioIntervalRef.current = null;
     }
+    if (soundRef.current) {
+      soundRef.current.stopAsync().catch(() => {});
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    sessionIdRef.current += 1; // Invalidate current session
+    isPlayingRef.current = false;
+    audioChunksRef.current = [];
     setIsSpeaking(false);
     setAudioLevel(0);
+    setCurrentAlignment(null);
   }, []);
 
   // 4. Send Message to Backend / Companion
@@ -171,7 +774,9 @@ export default function ChatScreen() {
 
         setMessages((prev) => [...prev, companionMsg]);
         setIsSending(false);
-        simulateCompanionSpeech(replyText);
+        
+        // Use streaming TTS with timestamps for real audio and viseme data
+        await playCompanionSpeechStreaming(replyText, 'en-US-JennyNeural');
       } catch (err) {
         setIsSending(false);
         const fallbackMsg: ChatMessage = {
@@ -184,7 +789,7 @@ export default function ChatScreen() {
         simulateCompanionSpeech(fallbackMsg.text);
       }
     },
-    [inputText, isSending, handleInterrupt, simulateCompanionSpeech]
+    [inputText, isSending, handleInterrupt, playCompanionSpeechStreaming, simulateCompanionSpeech]
   );
 
   // 5. Push-To-Talk Toggle
@@ -245,15 +850,34 @@ export default function ChatScreen() {
           </View>
         </View>
 
-        {/* 3D Avatar Presentation Stage */}
+        {/* Avatar Presentation Stage */}
         <View style={styles.avatarStage}>
-          <MobileAvatarRenderer
-            config={avatarConfig}
-            cameraPreset={cameraPreset}
-            isSpeaking={isSpeaking}
-            isListening={isListening}
-            audioLevel={audioLevel}
-          />
+          {displayMode === 'photorealistic-2d' ? (
+            <Photorealistic2DAvatar
+              assets={avatarAssets || {
+                portraitUrl: `${getApiBaseUrl()}/avatars/aria-portrait.webp`,
+                blinkUrl: `${getApiBaseUrl()}/avatars/aria-blink.webp`,
+                speakUrl: `${getApiBaseUrl()}/avatars/aria-speak.webp`,
+              }}
+              landmarks={resolveCompanionLandmarks(companionName)}
+              name={companionName}
+              isSpeaking={isSpeaking}
+              isListening={isListening}
+              audioLevel={audioLevel}
+              state={isSpeaking ? 'speaking' : isListening ? 'listening' : 'idle'}
+              size={320}
+              testID="photorealistic-2d-avatar"
+            />
+          ) : (
+            <MobileAvatarRenderer
+              config={avatarConfig}
+              cameraPreset={cameraPreset}
+              isSpeaking={isSpeaking}
+              isListening={isListening}
+              audioLevel={audioLevel}
+              wordAlignment={currentAlignment}
+            />
+          )}
 
           {/* Companion Subtitle Bubble Overlay */}
           {lastMessage && (
@@ -277,6 +901,19 @@ export default function ChatScreen() {
 
         {/* Voice & Conversation Action Bar */}
         <View style={styles.controlsBar}>
+          {/* Display Mode Toggle */}
+          <TouchableOpacity
+            style={[
+              styles.modeToggle,
+              displayMode === 'photorealistic-2d' && styles.modeToggleActive,
+            ]}
+            onPress={() => setDisplayMode(displayMode === 'photorealistic-2d' ? '3d' : 'photorealistic-2d')}
+          >
+            <Text style={styles.modeToggleText}>
+              {displayMode === 'photorealistic-2d' ? 'Photo 2D' : '3D'}
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.keyboardToggle}
             onPress={() => setShowTextInput((prev) => !prev)}
@@ -461,6 +1098,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     borderTopWidth: 1,
     borderTopColor: '#1e293b',
+  },
+  modeToggle: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  modeToggleActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#10b981',
+  },
+  modeToggleText: {
+    color: '#cbd5e1',
+    fontSize: 11,
+    fontWeight: '700',
   },
   keyboardToggle: {
     paddingHorizontal: 14,

@@ -3,7 +3,8 @@
 import React, { useEffect, useCallback } from 'react';
 import { CameraFramingPreset } from './animation-mappings';
 
-export type AvatarDisplayMode = 'video' | '3d' | '2d';
+export type AvatarDisplayMode = 'video' | '3d' | 'photorealistic-2d';
+export type AvatarRenderMode = 'baseline' | 'enhanced';
 
 export interface CameraToolbarProps {
   onZoomIn: () => void;
@@ -13,9 +14,12 @@ export interface CameraToolbarProps {
   activePreset?: CameraFramingPreset;
   displayMode?: AvatarDisplayMode;
   onChangeDisplayMode?: (mode: AvatarDisplayMode) => void;
+  renderMode?: AvatarRenderMode;
+  onChangeRenderMode?: (mode: AvatarRenderMode) => void;
   hasVideoMode?: boolean;
   is3DMode?: boolean;
   onToggle3DMode?: () => void;
+  showFramingControls?: boolean;
   className?: string;
 }
 
@@ -27,9 +31,12 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
   activePreset = 'full',
   displayMode,
   onChangeDisplayMode,
+  renderMode,
+  onChangeRenderMode,
   hasVideoMode = true,
   is3DMode = true,
   onToggle3DMode,
+  showFramingControls,
   className = '',
 }) => {
   // Global keyboard shortcuts for camera manipulation
@@ -74,7 +81,7 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const effectiveMode: AvatarDisplayMode = displayMode || (is3DMode ? '3d' : '2d');
+  const effectiveMode: AvatarDisplayMode = displayMode || (is3DMode ? '3d' : 'photorealistic-2d');
 
   return (
     <div
@@ -104,8 +111,8 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
           <button
             type="button"
             onClick={() => onChangeDisplayMode('3d')}
-            title="Switch to Full-Body 3D Avatar"
-            aria-label="Switch to Full-Body 3D Avatar"
+            title="Switch to Interactive 3D Avatar"
+            aria-label="Switch to Interactive 3D Avatar"
             className={`px-2.5 py-1 rounded-xl text-xs font-semibold tracking-wider transition ${
               effectiveMode === '3d'
                 ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/30'
@@ -117,36 +124,70 @@ export const CameraToolbar: React.FC<CameraToolbarProps> = ({
 
           <button
             type="button"
-            onClick={() => onChangeDisplayMode('2d')}
-            title="Switch to 2.5D Portrait view"
-            aria-label="Switch to 2.5D Portrait view"
+            onClick={() => onChangeDisplayMode('photorealistic-2d')}
+            title="Switch to Photorealistic 2D Avatar"
+            aria-label="Switch to Photorealistic 2D Avatar"
             className={`px-2.5 py-1 rounded-xl text-xs font-semibold tracking-wider transition ${
-              effectiveMode === '2d'
-                ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/30'
+              effectiveMode === 'photorealistic-2d'
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
                 : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
             }`}
           >
-            2D Face
-          </button>
-        </>
+            Photo 2D
+</button>
+        </> 
       ) : (
         <button
           type="button"
           onClick={() => onToggle3DMode?.()}
-          title={effectiveMode === '3d' ? 'Switch to 2.5D Portrait view' : 'Switch to Full-Body 3D view'}
-          aria-label={effectiveMode === '3d' ? 'Switch to 2.5D Portrait view' : 'Switch to Full-Body 3D view'}
+          title={effectiveMode === '3d' ? 'Switch to Photorealistic 2D Avatar' : 'Switch to Interactive 3D Avatar'}
+          aria-label={effectiveMode === '3d' ? 'Switch to Photorealistic 2D Avatar' : 'Switch to Interactive 3D Avatar'}
           className={`px-2.5 py-1 rounded-xl text-xs font-semibold tracking-wider transition ${
             effectiveMode === '3d'
               ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/30'
               : 'bg-slate-800 text-slate-400 hover:text-slate-200'
           }`}
         >
-          {effectiveMode === '3d' ? '3D Body' : '2D Face'}
+          {effectiveMode === '3d' ? '3D Body' : 'Photo 2D'}
         </button>
       )}
 
-      {/* 3D Camera Controls (Only active when in 3D mode) */}
-      {effectiveMode === '3d' && (
+      {/* Render Mode Selection: Baseline / Enhanced (only in 3D mode) */}
+      {onChangeRenderMode && (effectiveMode === '3d' || effectiveMode === 'video') && (
+        <>
+          <div className="w-[1px] h-5 bg-slate-800 mx-0.5" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => onChangeRenderMode('baseline')}
+            title="Standard Renderer (Baseline)"
+            aria-label="Switch to Baseline Renderer"
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold tracking-wider transition ${
+              renderMode === 'baseline'
+                ? 'bg-slate-700 text-white shadow-sm shadow-slate-500/30'
+                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Baseline
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeRenderMode('enhanced')}
+            title="Enhanced Renderer (Experimental: PBR + SSS + IBL)"
+            aria-label="Switch to Enhanced Renderer"
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold tracking-wider transition ${
+              renderMode === 'enhanced'
+                ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/30'
+                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Enhanced
+          </button>
+        </>
+      )}
+
+      {/* Framing & Camera Controls (Only active in 3D Body stage mode) */}
+      {(showFramingControls ?? (effectiveMode === '3d' || effectiveMode === 'photorealistic-2d')) && (
         <>
           <div className="w-[1px] h-5 bg-slate-800 mx-0.5" aria-hidden="true" />
 

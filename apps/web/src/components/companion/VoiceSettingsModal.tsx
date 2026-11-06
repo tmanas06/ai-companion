@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import { VoiceSettings } from '@/hooks/useLiveVoiceCompanion';
 import {
-  classifyVoiceGender,
   getCompanionVoiceProfile,
   NEURAL_VOICES,
+  ELEVENLABS_VOICES,
 } from '@/lib/voice-manager';
 
 interface VoiceSettingsModalProps {
@@ -35,13 +35,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
 
   const defaultProfile = getCompanionVoiceProfile(companionName, companionGender);
 
-  // Partition voices by gender
-  const maleVoices = availableVoices.filter((v) => classifyVoiceGender(v) === 'male');
-  const femaleVoices = availableVoices.filter((v) => classifyVoiceGender(v) === 'female');
-  const neutralVoices = availableVoices.filter((v) => classifyVoiceGender(v) === 'unknown');
-
   // Enforce strictly gender-appropriate choices for this avatar
-  const matchingGenderVoices = companionGender === 'male' ? maleVoices : femaleVoices;
+  const matchingElevenLabsVoices = ELEVENLABS_VOICES.filter((v) => v.gender === companionGender);
   const matchingNeuralVoices = NEURAL_VOICES.filter((v) => v.gender === companionGender);
 
   const handleResetDefaults = () => {
@@ -49,7 +44,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
       ...settings,
       pitch: defaultProfile.pitch,
       speechRate: defaultProfile.speechRate,
-      voiceName: defaultProfile.neuralVoice,
+      voiceName: defaultProfile.elevenLabsVoice,
       ttsEngine: 'backend',
     });
   };
@@ -63,7 +58,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: `Hello, I am ${companionName || 'your companion'}. This is my lifelike voice.`,
-          voice: settings.voiceName || defaultProfile.neuralVoice,
+          voice: settings.voiceName || defaultProfile.elevenLabsVoice,
           speed: settings.speechRate,
         }),
       });
@@ -83,11 +78,9 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         await audio.play();
       } else {
         setIsPlayingPreview(false);
-        if (onTestVoice) onTestVoice();
       }
     } catch (e) {
       setIsPlayingPreview(false);
-      if (onTestVoice) onTestVoice();
     }
   };
 
@@ -136,148 +129,73 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Engine selector */}
+        {/* Engine status indicator */}
         <div className="space-y-2">
           <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             Speech Output Engine
           </label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() =>
-                onUpdateSettings({
-                  ...settings,
-                  ttsEngine: 'backend',
-                  voiceName: settings.voiceName || defaultProfile.neuralVoice,
-                })
-              }
-              className={`p-3 rounded-2xl text-left border transition ${
-                settings.ttsEngine !== 'browser'
-                  ? 'border-violet-500 bg-violet-600/10 text-violet-300 ring-1 ring-violet-500/40 shadow-sm'
-                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-1.5">
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300">
-                  HD AI
-                </span>
-                <span className="text-sm font-semibold">Studio Neural</span>
+          <div className="rounded-2xl border border-violet-500/30 bg-violet-950/20 p-3.5 flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div>
+                <div className="text-xs font-semibold text-violet-200">Studio HD AI Voice Engine</div>
+                <div className="text-[11px] text-slate-400">Lifelike ElevenLabs & Neural speech synthesis</div>
               </div>
-              <div className="text-xs text-slate-400 mt-1">Ultra-smooth & lifelike human tone</div>
-            </button>
-            <button
-              onClick={() => onUpdateSettings({ ...settings, ttsEngine: 'browser' })}
-              className={`p-3 rounded-2xl text-left border transition ${
-                settings.ttsEngine === 'browser'
-                  ? 'border-violet-500 bg-violet-600/10 text-violet-300 ring-1 ring-violet-500/40 shadow-sm'
-                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              <div className="text-sm font-medium">Browser Speech</div>
-              <div className="text-xs text-slate-500 mt-1">Device synthesized speech</div>
-            </button>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">
+              Active
+            </span>
           </div>
         </div>
 
-        {/* Studio Neural AI Voice Selection */}
-        {settings.ttsEngine !== 'browser' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Neural AI Voice Model
-              </label>
-              <button
-                type="button"
-                onClick={handlePreviewNeural}
-                disabled={isPlayingPreview}
-                className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition disabled:opacity-50"
-                title="Preview spoken neural voice"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                  />
-                </svg>
-                <span>{isPlayingPreview ? 'Playing...' : 'Preview Voice'}</span>
-              </button>
-            </div>
-            <select
-              value={settings.voiceName || defaultProfile.neuralVoice}
-              onChange={(e) => onUpdateSettings({ ...settings, voiceName: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 truncate"
+        {/* Studio AI Voice Model Selection */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Voice Model ({companionGender === 'male' ? 'Masculine' : 'Feminine'})
+            </label>
+            <button
+              type="button"
+              onClick={handlePreviewNeural}
+              disabled={isPlayingPreview}
+              className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition disabled:opacity-50"
+              title="Preview spoken voice"
             >
-              {matchingNeuralVoices.map((voice) => (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                />
+              </svg>
+              <span>{isPlayingPreview ? 'Playing...' : 'Preview Voice'}</span>
+            </button>
+          </div>
+          <select
+            value={settings.voiceName || defaultProfile.elevenLabsVoice}
+            onChange={(e) => onUpdateSettings({ ...settings, voiceName: e.target.value, ttsEngine: 'backend' })}
+            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 truncate"
+          >
+            <optgroup label={`ElevenLabs Voices (${companionGender === 'male' ? 'Male' : 'Female'})`}>
+              {matchingElevenLabsVoices.map((voice) => (
                 <option key={voice.id} value={voice.id}>
-                  {voice.name} {voice.recommendedFor?.toLowerCase() === companionName?.toLowerCase() ? '★ (Signature)' : ''}
+                  {voice.name} {voice.recommendedFor?.toLowerCase() === companionName?.toLowerCase() ? '★ (Character Signature)' : ''}
                 </option>
               ))}
-            </select>
-            <p className="text-[11px] text-slate-400">
-              Filtered to natural {companionGender === 'male' ? 'masculine' : 'feminine'} neural voices with human cadence and realistic emotion.
-            </p>
-          </div>
-        )}
-
-        {/* Browser Voice Picker (when browser engine is selected) */}
-        {settings.ttsEngine === 'browser' && availableVoices.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Browser Voice Selection
-              </label>
-              {onTestVoice && (
-                <button
-                  type="button"
-                  onClick={onTestVoice}
-                  className="text-xs text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-medium transition"
-                  title="Test spoken voice"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                    />
-                  </svg>
-                  <span>Test Voice</span>
-                </button>
-              )}
-            </div>
-            <select
-              value={settings.voiceName || ''}
-              onChange={(e) => onUpdateSettings({ ...settings, voiceName: e.target.value })}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500 truncate"
-            >
-              <option value="">
-                Default Recommended Voice ({companionGender === 'male' ? 'Masculine' : 'Feminine'})
-              </option>
-              {matchingGenderVoices.length > 0 && (
-                <optgroup label={`${companionGender === 'male' ? 'Male' : 'Female'} Voices`}>
-                  {matchingGenderVoices.map((voice) => (
-                    <option key={voice.voiceURI || voice.name} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {neutralVoices.length > 0 && (
-                <optgroup label="System / Neutral Voices">
-                  {neutralVoices.map((voice) => (
-                    <option key={voice.voiceURI || voice.name} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <p className="text-[11px] text-slate-400">
-              Only {companionGender === 'male' ? 'masculine' : 'feminine'} voices are enabled for {companionName || 'this avatar'}.
-            </p>
-          </div>
-        )}
+            </optgroup>
+            <optgroup label={`Neural Studio Voices (${companionGender === 'male' ? 'Male' : 'Female'})`}>
+              {matchingNeuralVoices.map((voice) => (
+                <option key={voice.id} value={voice.id}>
+                  {voice.name}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          <p className="text-[11px] text-slate-400">
+            Strictly filtered to natural {companionGender === 'male' ? 'masculine' : 'feminine'} studio voices with human cadence and realistic emotion.
+          </p>
+        </div>
 
         {/* Speed slider */}
         <div className="space-y-2">

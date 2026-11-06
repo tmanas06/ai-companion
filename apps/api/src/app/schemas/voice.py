@@ -15,6 +15,37 @@ class SynthesizeRequest(BaseModel):
     speed: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Speech rate multiplier")
 
 
+class SynthesizeStreamRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000, description="Text to synthesize to speech")
+    voice: Optional[str] = Field(None, description="Voice identifier")
+    speed: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Speech rate multiplier")
+    turn_id: Optional[str] = Field(
+        None,
+        description="Client-generated voice-turn identifier for correlating streaming events.",
+    )
+
+
+class SynthesizeStreamWithTimestampsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000, description="Text to synthesize to speech")
+    voice: Optional[str] = Field(None, description="Voice identifier")
+    speed: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Speech rate multiplier")
+    turn_id: Optional[str] = Field(
+        None,
+        description="Client-generated voice-turn identifier for correlating streaming events.",
+    )
+
+
+class AlignmentData(BaseModel):
+    words: list[str] = Field(default_factory=list, description="Words in order")
+    word_start_times_seconds: list[float] = Field(default_factory=list, description="Word start times in seconds")
+    word_end_times_seconds: list[float] = Field(default_factory=list, description="Word end times in seconds")
+
+
+class SynthesizeStreamChunk(BaseModel):
+    audio: str = Field(..., description="Base64 encoded audio chunk")
+    alignment: Optional[AlignmentData] = Field(None, description="Word-level alignment timestamps")
+
+
 class VoiceTurnRequest(BaseModel):
     companion_id: UUID = Field(..., description="Target companion ID")
     conversation_id: Optional[UUID] = Field(None, description="Existing conversation ID if continuing")

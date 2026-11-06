@@ -5,6 +5,7 @@ import { CompanionVoiceState } from '@/components/companion/AvatarRenderer';
 import {
   selectVoiceForCompanion,
   getCompanionVoiceProfile,
+  isVoiceMatchingGender,
 } from '@/lib/voice-manager';
 import { validateAvatarEmotion } from '@/lib/emotion-selector';
 import { AvatarEmotion } from '@/lib/avatar-video-manifest';
@@ -32,28 +33,34 @@ function loadCompanionVoiceSettings(
   gender: 'male' | 'female' = 'female'
 ): VoiceSettings {
   const profile = getCompanionVoiceProfile(name, gender);
+  const defaultVoice = profile.elevenLabsVoice || (gender === 'male' ? 'pNInz6obpgDQGcFmaJgB' : '21m00Tcm4TlvDq8ikWAM');
+
   if (typeof window !== 'undefined') {
     try {
       if (id) {
         const saved = localStorage.getItem(`ai_companion_voice_${id}`);
         if (saved) {
           const parsed = JSON.parse(saved);
+          const rawVoice = parsed.voiceName;
+          const validVoice = isVoiceMatchingGender(rawVoice, gender) ? rawVoice : defaultVoice;
           return {
             speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : profile.speechRate,
             pitch: typeof parsed.pitch === 'number' ? parsed.pitch : profile.pitch,
-            ttsEngine: parsed.ttsEngine === 'browser' ? 'browser' : 'backend',
-            voiceName: parsed.voiceName || profile.neuralVoice,
+            ttsEngine: 'backend',
+            voiceName: validVoice,
           };
         }
       }
       const generic = localStorage.getItem('ai_companion_voice_settings');
       if (generic) {
         const parsed = JSON.parse(generic);
+        const rawVoice = parsed.voiceName;
+        const validVoice = isVoiceMatchingGender(rawVoice, gender) ? rawVoice : defaultVoice;
         return {
           speechRate: typeof parsed.speechRate === 'number' ? parsed.speechRate : profile.speechRate,
           pitch: typeof parsed.pitch === 'number' ? parsed.pitch : profile.pitch,
-          ttsEngine: parsed.ttsEngine === 'browser' ? 'browser' : 'backend',
-          voiceName: parsed.voiceName || profile.neuralVoice,
+          ttsEngine: 'backend',
+          voiceName: validVoice,
         };
       }
     } catch (e) {
@@ -64,7 +71,7 @@ function loadCompanionVoiceSettings(
     speechRate: profile.speechRate,
     pitch: profile.pitch,
     ttsEngine: 'backend',
-    voiceName: profile.neuralVoice,
+    voiceName: defaultVoice,
   };
 }
 
@@ -223,13 +230,16 @@ export function useLiveVoiceCompanion({
   }, [companionId, companionName, companionGender]);
 
   const setVoiceSettings = useCallback((newSettings: VoiceSettings) => {
-    setVoiceSettingsState(newSettings);
+    const sanitized: VoiceSettings = {
+      ...newSettings,
+      ttsEngine: 'backend',
+    };
+    setVoiceSettingsState(sanitized);
     if (typeof window !== 'undefined') {
       try {
         if (companionId) {
-          localStorage.setItem(`ai_companion_voice_${companionId}`, JSON.stringify(newSettings));
+          localStorage.setItem(`ai_companion_voice_${companionId}`, JSON.stringify(sanitized));
         }
-        localStorage.setItem('ai_companion_voice_settings', JSON.stringify(newSettings));
       } catch (e) {
         // Ignored
       }
@@ -271,6 +281,7 @@ export function useLiveVoiceCompanion({
   const playbackSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const playbackAnalyserNodeRef = useRef<AnalyserNode | null>(null);
   const playbackAnimFrameRef = useRef<number | null>(null);
+  const latestAlignmentRef = useRef<{ words: string[]; word_start_times_seconds: number[]; word_end_times_seconds: number[] } | null>(null);
 
   // VAD & Hands-Free conversation state tracking
   const hasUserSpokenRef = useRef<boolean>(false);
@@ -559,6 +570,7 @@ export function useLiveVoiceCompanion({
     // 6. Cancel active SadTalker inference job
     cancelActiveSadTalkerJob();
     setSadtalkerVideoUrl(null);
+    latestAlignmentRef.current = null;
 
     // 7. Explicit state transition
     setState('interrupted');
@@ -567,9 +579,18 @@ export function useLiveVoiceCompanion({
     }, 700);
   }, [cleanupMicrophone, stopPlaybackMonitoring, cancelActiveSadTalkerJob]);
 
+  // Browser speech synthesis disabled to prevent distorted metallic/espeak voices
+  const playBrowserSpeech = useCallback(
+    (_text: string, _sessionId: number) => {
+      console.warn('[LiveVoice] Browser speech synthesis is disabled. Studio AI voices are enforced.');
+      setState('idle');
+    },
+    []
+  );
+
   // Play assistant audio response with amplitude monitoring
   const playAssistantAudio = useCallback(
-    async (audioBase64: string, fallbackText: string, sessionId: number, audioFormat?: string) => {
+    async (audioBase64: string, _fallbackText: string, sessionId: number, audioFormat?: string) => {
       if (sessionId !== activeSessionIdRef.current) {
         return; // Session cancelled/interrupted
       }
@@ -583,6 +604,7 @@ export function useLiveVoiceCompanion({
         activeAudioRef.current = audio;
 
         // Try setting playback rate
+        audio.preservesPitch = true;
         audio.playbackRate = voiceSettings.speechRate;
 
         // Only transition to 'speaking' when audio actually starts playback
@@ -617,9 +639,10 @@ export function useLiveVoiceCompanion({
 
         audio.onerror = () => {
           stopPlaybackMonitoring();
-          // If WAV decode failed, fallback to Web Speech Synthesis
+          console.error('[LiveVoice] Assistant audio playback failed');
           if (sessionId === activeSessionIdRef.current) {
-            playBrowserSpeech(fallbackText, sessionId);
+            setState('idle');
+            setErrorMessage('Unable to play companion audio');
           }
         };
 
@@ -632,9 +655,7 @@ export function useLiveVoiceCompanion({
           setAutoplayBlocked(true);
           pendingAudioPlaybackRef.current = () => {
             if (audio) {
-              audio.play().catch(() => playBrowserSpeech(fallbackText, sessionId));
-            } else {
-              playBrowserSpeech(fallbackText, sessionId);
+              audio.play().catch((playErr) => console.error('[LiveVoice] Play blocked:', playErr));
             }
           };
           if (sessionId === activeSessionIdRef.current) {
@@ -646,129 +667,15 @@ export function useLiveVoiceCompanion({
             }, 3500);
           }
         } else {
-          // Fallback to browser speech if audio autoplay is restricted or failed
-          playBrowserSpeech(fallbackText, sessionId);
+          console.error('[LiveVoice] Audio playback failed:', e);
+          if (sessionId === activeSessionIdRef.current) {
+            setState('idle');
+            setErrorMessage('Audio playback failed');
+          }
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [voiceSettings]
-  );
-
-  // Fallback / client-side speech synthesis
-  const playBrowserSpeech = useCallback(
-    (text: string, sessionId: number) => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        setState('idle');
-        return;
-      }
-
-      if (sessionId !== activeSessionIdRef.current) {
-        return;
-      }
-
-      try {
-        window.speechSynthesis.cancel();
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        activeUtteranceRef.current = utterance;
-
-        // Guaranteed gender-matched voice & distinct pitch profile
-        const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
-        const gender = companionGender || 'female';
-        const selection = selectVoiceForCompanion(
-          voices,
-          gender,
-          companionName,
-          voiceSettings.voiceName
-        );
-
-        if (selection.voice) {
-          utterance.voice = selection.voice;
-          utterance.lang = selection.voice.lang || 'en-US';
-        }
-
-        // Apply pitch:
-        // Use user-customized pitch if explicitly configured, but enforce gender acoustic formant
-        let effectivePitch = voiceSettings.pitch;
-        if (voiceSettings.pitch === 1.0) {
-          effectivePitch = selection.pitch;
-        }
-        if (gender === 'male' && effectivePitch > 0.95) {
-          effectivePitch = selection.pitch <= 0.88 ? selection.pitch : 0.86;
-        } else if (gender === 'female' && effectivePitch < 0.95) {
-          effectivePitch = selection.pitch >= 1.0 ? selection.pitch : 1.04;
-        }
-
-        utterance.pitch = effectivePitch;
-        utterance.rate = voiceSettings.speechRate;
-
-        utterance.onstart = () => {
-          if (sessionId === activeSessionIdRef.current) {
-            setState('speaking');
-            setErrorMessage(null);
-            const startTime = Date.now();
-            const pulseLoop = () => {
-              if (sessionId !== activeSessionIdRef.current || !window.speechSynthesis.speaking) {
-                stopPlaybackMonitoring();
-                return;
-              }
-              const t = (Date.now() - startTime) / 1000;
-              const rhythm = Math.max(0, Math.sin(t * 10) * 0.4 + Math.sin(t * 18) * 0.2 + 0.35);
-              setAudioLevel(rhythm);
-              playbackAnimFrameRef.current = requestAnimationFrame(pulseLoop);
-            };
-            playbackAnimFrameRef.current = requestAnimationFrame(pulseLoop);
-          } else {
-            window.speechSynthesis.cancel();
-          }
-        };
-
-        utterance.onend = () => {
-          stopPlaybackMonitoring();
-          if (sessionId === activeSessionIdRef.current) {
-            setState('idle');
-            setAudioLevel(0);
-            if (handsFreeRef.current) {
-              if (autoListenTimerRef.current) clearTimeout(autoListenTimerRef.current);
-              autoListenTimerRef.current = setTimeout(() => {
-                if (sessionId === activeSessionIdRef.current && stateRef.current === 'idle' && handsFreeRef.current) {
-                  startListeningRef.current();
-                }
-              }, 450);
-            }
-          }
-          activeUtteranceRef.current = null;
-        };
-
-        utterance.onerror = (e) => {
-          if ((e as { error?: string })?.error === 'canceled' || (e as { error?: string })?.error === 'interrupted') {
-            return;
-          }
-          if (sessionId === activeSessionIdRef.current) {
-            setState('idle');
-            setAudioLevel(0);
-          }
-          activeUtteranceRef.current = null;
-        };
-
-        setState('speaking');
-        setErrorMessage(null);
-
-        window.speechSynthesis.speak(utterance);
-
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-      } catch (e) {
-        console.error('Speech synthesis execution failed:', e);
-        setState('idle');
-      }
-    },
-    [availableVoices, companionGender, companionName, stopPlaybackMonitoring, voiceSettings]
+    [voiceSettings, startPlaybackMonitoring, stopPlaybackMonitoring]
   );
 
   // Submit audio to backend voice turn orchestration
@@ -843,13 +750,11 @@ export function useLiveVoiceCompanion({
           handleSadTalkerJob(data.sadtalker_job_id, currentSessionId);
         }
 
-        // Play companion response:
-        // When backend provides audio_base64 and user hasn't explicitly forced browser-only,
-        // play the high-fidelity neural audio
-        if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
+        // Play companion response via high-fidelity neural audio
+        if (data.audio_base64) {
           playAssistantAudio(data.audio_base64, replyText, currentSessionId, data.audio_format || 'audio/mpeg');
         } else {
-          playBrowserSpeech(replyText, currentSessionId);
+          setState('idle');
         }
       } catch (err: unknown) {
         console.error('[LiveVoice] submitVoiceTurn error:', err);
@@ -1115,12 +1020,38 @@ export function useLiveVoiceCompanion({
     [interrupt, submitVoiceTurn]
   );
 
-  // Replay last speech response
-  const replaySpeech = useCallback(() => {
+  // Replay last speech response using high-fidelity studio audio
+  const replaySpeech = useCallback(async () => {
     if (!lastCompanionSpeech) return;
     const currentSessionId = ++activeSessionIdRef.current;
-    playBrowserSpeech(lastCompanionSpeech, currentSessionId);
-  }, [lastCompanionSpeech, playBrowserSpeech]);
+    setState('generating_response');
+    try {
+      const res = await fetch('/api/voice/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: lastCompanionSpeech,
+          voice: voiceSettings.voiceName,
+          speed: voiceSettings.speechRate,
+        }),
+      });
+      if (!res.ok) throw new Error('Replay synthesis failed');
+      const blob = await res.blob();
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string)?.split(',')[1];
+        if (base64) {
+          playAssistantAudio(base64, lastCompanionSpeech, currentSessionId, 'audio/mpeg');
+        } else {
+          setState('idle');
+        }
+      };
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      console.error('[LiveVoice] replaySpeech error:', e);
+      setState('idle');
+    }
+  }, [lastCompanionSpeech, voiceSettings, playAssistantAudio]);
 
   // Proactively trigger companion opening greeting before user speaks
   const triggerGreeting = useCallback(
@@ -1191,10 +1122,10 @@ export function useLiveVoiceCompanion({
           handleSadTalkerJob(data.sadtalker_job_id, currentSessionId);
         }
 
-        if (data.audio_base64 && voiceSettings.ttsEngine !== 'browser') {
+        if (data.audio_base64) {
           playAssistantAudio(data.audio_base64, greetingSpeech, currentSessionId, data.audio_format || 'audio/mpeg');
         } else {
-          playBrowserSpeech(greetingSpeech, currentSessionId);
+          setState('idle');
         }
       } catch (err: unknown) {
         const errorObj = err as { name?: string; message?: string } | null;
@@ -1207,14 +1138,14 @@ export function useLiveVoiceCompanion({
           return;
         }
 
-        // Instant fallback: avatar greets and speaks in character without delay
+        // Instant fallback: avatar greets and shows text without distorted browser speech
         setTranscript('');
         setLastCompanionSpeech(fallbackText);
         setErrorMessage(null);
-        playBrowserSpeech(fallbackText, currentSessionId);
+        setState('idle');
       }
     },
-    [companionId, conversationId, companionName, onConversationCreated, playAssistantAudio, playBrowserSpeech, voiceSettings, handleSadTalkerJob]
+    [companionId, conversationId, companionName, onConversationCreated, playAssistantAudio, voiceSettings, handleSadTalkerJob]
   );
 
   // Resume/unblock audio when browser autoplay policy requires user interaction
@@ -1319,5 +1250,7 @@ export function useLiveVoiceCompanion({
     currentEmotion,
     emotionIntensity,
     sadtalkerVideoUrl,
+    // Word-level alignment data from streaming TTS (cumulative, relative to utterance start)
+    wordAlignment: latestAlignmentRef.current,
   };
 }

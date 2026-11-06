@@ -5,8 +5,13 @@ import dynamic from 'next/dynamic';
 import {
   AvatarRenderer,
   AvatarRendererProps,
+  AvatarExpression,
+  CompanionVoiceState,
 } from './AvatarRenderer';
-import { CameraToolbar, AvatarDisplayMode } from './3d/CameraToolbar';
+import { CameraToolbar, AvatarDisplayMode, AvatarRenderMode } from './3d/CameraToolbar';
+import { EnhancedAvatarScene } from './3d/EnhancedAvatarScene';
+
+export type { AvatarDisplayMode } from './3d/CameraToolbar';
 import {
   CAMERA_ZOOM_LIMITS,
   CameraFramingPreset,
@@ -88,6 +93,10 @@ export interface FullBodyAvatarProps extends AvatarRendererProps {
   showControls?: boolean;
   defaultTo3D?: boolean;
   initialMode?: AvatarDisplayMode;
+  initialRenderMode?: AvatarRenderMode;
+  onChangeDisplayMode?: (mode: AvatarDisplayMode) => void;
+  onChangeRenderMode?: (mode: AvatarRenderMode) => void;
+  onMetricsLoaded?: (metrics: ModelBoundingMetrics) => void;
   currentEmotion?: AvatarEmotion;
   emotionIntensity?: number;
   sadtalkerVideoUrl?: string | null;
@@ -96,6 +105,37 @@ export interface FullBodyAvatarProps extends AvatarRendererProps {
 const ARIA_PHOTOREALISTIC_MODEL = '/models/aria_photorealistic.glb';
 const MARCUS_PHOTOREALISTIC_MODEL = '/models/marcus_photorealistic.glb';
 const DEFAULT_LEGACY_MODEL = '/models/avatar.glb';
+
+/**
+ * Maps companion application state and backend emotion deterministically to a 2D avatar expression.
+ * Explicitly avoids unsupported sentiment assumptions.
+ */
+export function deriveDeterministicExpression(
+  state: CompanionVoiceState = 'idle',
+  currentEmotion: AvatarEmotion = 'neutral',
+  explicitExpression?: AvatarExpression
+): AvatarExpression {
+  if (explicitExpression) return explicitExpression;
+
+  if (state === 'error') {
+    return 'concerned';
+  }
+
+  if (state === 'processing_speech' || state === 'generating_response') {
+    return 'thoughtful';
+  }
+
+  if (state === 'speaking') {
+    if (currentEmotion === 'happy' || currentEmotion === 'laughing') {
+      return 'happy';
+    }
+    if (currentEmotion === 'sad' || currentEmotion === 'confused') {
+      return 'concerned';
+    }
+  }
+
+  return 'neutral';
+}
 
 export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   modelUrl: explicitModelUrl,
@@ -111,23 +151,35 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   showControls = true,
   defaultTo3D = true,
   initialMode,
+  initialRenderMode,
+  onChangeDisplayMode,
+  onChangeRenderMode,
+  onMetricsLoaded,
   currentEmotion = 'neutral',
   emotionIntensity = 0.5,
   sadtalkerVideoUrl,
+  expression: explicitExpression,
   className = '',
   ...props
 }) => {
   const [hasWebGL, setHasWebGL] = useState<boolean>(() => isWebGLSupported());
+
+  const effectiveExpression = deriveDeterministicExpression(
+    state,
+    currentEmotion,
+    explicitExpression
+  );
 
   // Check if active 3D customization exists
   const config3D = config && (config as Avatar3DConfig).version === 2 ? (config as Avatar3DConfig) : null;
 
   // Determine appropriate 3D character model based on config.baseModelId or fallback to character inference
   const isMaleCharacter = inferCompanionGender({ name, personality: null }) === 'male';
+  const isMarcus = name.toLowerCase().includes('marcus') || isMaleCharacter;
   const isMarcusModel =
     config3D?.baseModelId === 'marcus_photorealistic' ||
     config3D?.baseModelId === 'human_male_v1' ||
-    (!config3D && isMaleCharacter);
+    (isMarcus && (!config3D || config3D.baseModelId !== 'aria_photorealistic'));
   const targetCharacterModel = isMarcusModel
     ? MARCUS_PHOTOREALISTIC_MODEL
     : ARIA_PHOTOREALISTIC_MODEL;
@@ -136,10 +188,10 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   const isAria = name.toLowerCase().includes('aria');
   const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
     if (initialMode) return initialMode;
-    if (!isWebGLSupported()) return '2d';
+    if (!isWebGLSupported()) return 'photorealistic-2d';
     // If user saved a customized 3D avatar from Avatar Studio, showcase their 3D companion
     if (config3D) return '3d';
-    return isAria ? 'video' : defaultTo3D ? '3d' : '2d';
+    return isAria ? 'video' : defaultTo3D ? '3d' : 'photorealistic-2d';
   });
 
   const [resolvedModelUrl, setResolvedModelUrl] = useState<string>(
@@ -152,28 +204,68 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   const [metrics, setMetrics] = useState<ModelBoundingMetrics | null>(null);
   const [fps, setFps] = useState<number | null>(null);
   const [reactionFeedback, setReactionFeedback] = useState<string | null>(null);
+  const [renderMode, setRenderMode] = useState<AvatarRenderMode>(() => {
+    if (initialRenderMode) return initialRenderMode;
+    return 'baseline';
+  });
+
+  // Wrapper to update display mode and notify parent
+  const updateDisplayMode = useCallback((mode: AvatarDisplayMode | ((prev: AvatarDisplayMode) => AvatarDisplayMode)) => {
+    setDisplayMode(mode);
+    if (typeof mode === 'function') {
+      // Call onChangeDisplayMode with the new value after state updates
+      // We need to wait for the state update, so we'll use a ref or just call with the computed value
+      setDisplayMode((prev) => {
+        const newMode = mode(prev);
+        onChangeDisplayMode?.(newMode);
+        return newMode;
+      });
+    } else {
+      onChangeDisplayMode?.(mode);
+    }
+  }, [onChangeDisplayMode]);
 
   // Sync display mode when companion identity or active 3D avatar configuration changes
   useEffect(() => {
     if (initialMode) {
-      setDisplayMode(initialMode);
+      updateDisplayMode(initialMode);
     } else if (config3D) {
       // Prioritize the customized 3D avatar when WebGL is available
-      setDisplayMode(isWebGLSupported() ? '3d' : '2d');
+      updateDisplayMode(isWebGLSupported() ? '3d' : 'photorealistic-2d');
     } else if (name.toLowerCase().includes('aria')) {
-      setDisplayMode('video');
+      updateDisplayMode('video');
     } else {
-      setDisplayMode(defaultTo3D ? '3d' : '2d');
+      updateDisplayMode(defaultTo3D ? '3d' : 'photorealistic-2d');
     }
-  }, [name, initialMode, defaultTo3D, config3D]);
+  }, [name, initialMode, defaultTo3D, config3D, updateDisplayMode]);
+
+  // Sync render mode
+  useEffect(() => {
+    if (initialRenderMode) {
+      setRenderMode(initialRenderMode);
+      onChangeRenderMode?.(initialRenderMode);
+    }
+  }, [initialRenderMode, onChangeRenderMode]);
+
+  const updateRenderMode = useCallback((mode: AvatarRenderMode) => {
+    setRenderMode(mode);
+    onChangeRenderMode?.(mode);
+  }, [onChangeRenderMode]);
+
+  const handleMetricsLoaded = useCallback(
+    (newMetrics: ModelBoundingMetrics) => {
+      setMetrics(newMetrics);
+      onMetricsLoaded?.(newMetrics);
+    },
+    [onMetricsLoaded]
+  );
 
   // Check WebGL availability and probe for target photorealistic asset
   useEffect(() => {
     const supported = isWebGLSupported();
     setHasWebGL(supported);
-    if (!supported && displayMode === '3d') {
-      setDisplayMode('2d');
-    }
+    // Note: 3D Body tab now uses a CSS/image cinematic stage that does NOT require WebGL,
+    // so we no longer automatically downgrade 3d → photorealistic-2d when WebGL is absent.
 
     if (explicitModelUrl) {
       setResolvedModelUrl(explicitModelUrl);
@@ -206,7 +298,7 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
     } else {
       setResolvedModelUrl(currentTarget);
     }
-  }, [explicitModelUrl, targetCharacterModel, displayMode]);
+  }, [explicitModelUrl, targetCharacterModel, displayMode, updateDisplayMode]);
 
   // Preset framing selection handler (Face close-up, Bust upper-body, Full head-to-toe)
   const handleSelectPreset = useCallback(
@@ -246,13 +338,13 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   }, [metrics]);
 
   const handleToggle3D = useCallback(() => {
-    setDisplayMode((prev) => (prev === '3d' ? '2d' : '3d'));
-  }, []);
+    updateDisplayMode((prev: AvatarDisplayMode) => (prev === '3d' ? 'photorealistic-2d' : '3d'));
+  }, [updateDisplayMode]);
 
   const handleVideoError = useCallback((err: Error) => {
     console.warn('[FullBodyAvatar] Video playback failed, transitioning to 3D/2D fallback:', err);
-    setDisplayMode(hasWebGL ? '3d' : '2d');
-  }, [hasWebGL]);
+    updateDisplayMode(hasWebGL ? '3d' : 'photorealistic-2d');
+  }, [hasWebGL, updateDisplayMode]);
 
   const handleTapReaction = useCallback((reactionType: 'head' | 'body') => {
     if (reactionType === 'head') {
@@ -283,64 +375,29 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             onError={handleVideoError}
           />
         </div>
-      ) : displayMode === '3d' && hasWebGL ? (
-        /* 2. Full-Body 3D Canvas Stage (Secondary / Fallback View) */
-        <div className="relative w-full h-full flex items-center justify-center animate-in fade-in duration-300">
-          <ThreeErrorBoundary
-            onError={() => setDisplayMode('2d')}
-            fallback={
-              <div className="relative flex flex-col items-center justify-center p-6">
-                <AvatarRenderer
-                  config={config}
-                  previewUrl={previewUrl}
-                  name={name}
-                  state={state}
-                  audioLevel={audioLevel}
-                  isSpeaking={isSpeaking}
-                  visemes={visemes}
-                  currentTime={currentTime}
-                  size={320}
-                  {...props}
-                />
-              </div>
-            }
-          >
-            <Dynamic3DScene
-              modelUrl={resolvedModelUrl}
-              animationsUrl={animationsUrl}
-              config={config}
-              state={state}
-              audioLevel={audioLevel}
-              isSpeaking={isSpeaking}
-              visemes={visemes}
-              currentTime={currentTime}
-              zoomDistance={zoomDistance}
-              onFpsUpdate={setFps}
-              onMetricsLoaded={setMetrics}
-              onTapReaction={handleTapReaction}
-            />
-          </ThreeErrorBoundary>
-
-          {/* Interaction feedback overlay */}
-          {reactionFeedback && (
-            <div className="absolute top-8 px-4 py-2 rounded-2xl bg-violet-600/90 text-white text-xs font-semibold shadow-lg shadow-violet-500/30 animate-bounce pointer-events-none z-30">
-              {reactionFeedback}
-            </div>
-          )}
-
-          {/* Measured FPS indicator */}
-          {fps !== null && (
-            <div
-              className="absolute bottom-3 left-4 text-[10px] font-mono text-slate-500/80 bg-slate-950/60 px-2 py-0.5 rounded-md border border-slate-900 pointer-events-none select-none z-20"
-              title="Measured rendering frame rate"
-            >
-              {fps} FPS
-            </div>
-          )}
-        </div>
-      ) : (
-        /* 3. Fallback 2.5D Landmark Avatar Portrait */
-        <div className="relative flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+      ) : displayMode === '3d' && renderMode === 'enhanced' ? (
+        /* Enhanced 3D Renderer (Experimental) */
+        <EnhancedAvatarScene
+          modelUrl={resolvedModelUrl}
+          animationsUrl={animationsUrl}
+          config={config}
+          state={state}
+          audioLevel={audioLevel}
+          isSpeaking={isSpeaking}
+          visemes={visemes}
+          currentTime={currentTime}
+          zoomDistance={zoomDistance}
+          onFpsUpdate={setFps}
+          onMetricsLoaded={handleMetricsLoaded}
+          onTapReaction={handleTapReaction}
+          className="w-full h-full"
+        />
+      ) : displayMode === '3d' ? (
+        /* 2. Full-Body Cinematic Stage (3D Body tab — transparent full body merged with room background) */
+        <div
+          data-testid="photorealistic-2d-stage"
+          className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden animate-in fade-in duration-300"
+        >
           <AvatarRenderer
             previewUrl={previewUrl}
             name={name}
@@ -349,14 +406,33 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             isSpeaking={isSpeaking}
             visemes={visemes}
             currentTime={currentTime}
-            size={320}
+            expression={effectiveExpression}
+            framing={activePreset}
+            stageMode={true}
+            className="w-full h-full"
             {...props}
           />
-          {!hasWebGL && displayMode === '3d' && (
-            <span className="mt-3 text-[11px] text-amber-400/90">
-              WebGL unavailable on device — using 2.5D portrait view
-            </span>
-          )}
+        </div>
+      ) : (
+        /* 3. Photorealistic 2D Face-Only Portrait Card (Photo 2D tab — original compact card) */
+        <div
+          data-testid="photorealistic-2d-portrait"
+          className="relative w-full h-full flex flex-col items-center justify-center animate-in fade-in duration-300"
+        >
+          <AvatarRenderer
+            previewUrl={previewUrl}
+            name={name}
+            state={state}
+            audioLevel={audioLevel}
+            isSpeaking={isSpeaking}
+            visemes={visemes}
+            currentTime={currentTime}
+            expression={effectiveExpression}
+            stageMode={false}
+            size={320}
+            className=""
+            {...props}
+          />
         </div>
       )}
 
@@ -371,9 +447,12 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
             activePreset={activePreset}
             displayMode={displayMode}
             onChangeDisplayMode={setDisplayMode}
+            renderMode={renderMode}
+            onChangeRenderMode={updateRenderMode}
             hasVideoMode={isAria}
             is3DMode={displayMode === '3d'}
             onToggle3DMode={handleToggle3D}
+            showFramingControls={displayMode === '3d'}
           />
         </div>
       )}

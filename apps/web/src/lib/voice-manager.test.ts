@@ -3,7 +3,10 @@ import {
   selectVoiceForCompanion,
   getCompanionVoiceProfile,
   getRecommendedNeuralVoice,
+  getRecommendedElevenLabsVoice,
+  isVoiceMatchingGender,
   NEURAL_VOICES,
+  ELEVENLABS_VOICES,
 } from './voice-manager';
 import { inferCompanionGender, COMPANION_PRESETS } from './companion-presets';
 
@@ -139,6 +142,48 @@ describe('Voice Manager & Gender Resolution', () => {
         expect(v.id).toMatch(/^en-[A-Z]{2}-/);
         expect(v.name.length).toBeGreaterThan(0);
       });
+    });
+
+    it('contains properly structured ElevenLabs voice options in ELEVENLABS_VOICES', () => {
+      expect(ELEVENLABS_VOICES.length).toBeGreaterThanOrEqual(10);
+      ELEVENLABS_VOICES.forEach((v) => {
+        expect(['male', 'female']).toContain(v.gender);
+        expect(v.id.length).toBeGreaterThan(10);
+        expect(v.name.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('recommends correct ElevenLabs voice per companion character and gender', () => {
+      expect(getRecommendedElevenLabsVoice('Marcus', 'male')).toBe('pNInz6obpgDQGcFmaJgB'); // Adam
+      expect(getRecommendedElevenLabsVoice('Atlas', 'male')).toBe('JBFqnCBsd6RMkjVDRZzb');  // George
+      expect(getRecommendedElevenLabsVoice('Kai', 'male')).toBe('TX3LPaxmHKxFdv7VOQHJ');    // Liam
+      expect(getRecommendedElevenLabsVoice('Aria', 'female')).toBe('21m00Tcm4TlvDq8ikWAM'); // Rachel
+      expect(getRecommendedElevenLabsVoice('Luna', 'female')).toBe('EXAVITQu4vr4xnSDxMaL'); // Sarah
+      expect(getRecommendedElevenLabsVoice('Nova', 'female')).toBe('XB0fDUnXU5powFXDhCwa'); // Charlotte
+      expect(getRecommendedElevenLabsVoice('Sage', 'female')).toBe('pFZP5JQG7iQjIQuC4Bku'); // Lily
+      expect(getRecommendedElevenLabsVoice('Maya', 'female')).toBe('cgSgspJ2msm6clMCkdW9'); // Jessica
+
+      // Custom fallbacks
+      expect(getRecommendedElevenLabsVoice('Custom Man', 'male')).toBe('pNInz6obpgDQGcFmaJgB');
+      expect(getRecommendedElevenLabsVoice('Custom Woman', 'female')).toBe('21m00Tcm4TlvDq8ikWAM');
+    });
+
+    it('strictly checks voice gender matching with isVoiceMatchingGender', () => {
+      // Male voices
+      expect(isVoiceMatchingGender('pNInz6obpgDQGcFmaJgB', 'male')).toBe(true);
+      expect(isVoiceMatchingGender('en-US-GuyNeural', 'male')).toBe(true);
+      expect(isVoiceMatchingGender('Adam', 'male')).toBe(true);
+      expect(isVoiceMatchingGender('21m00Tcm4TlvDq8ikWAM', 'male')).toBe(false);
+      expect(isVoiceMatchingGender('en-US-JennyNeural', 'male')).toBe(false);
+      expect(isVoiceMatchingGender('Rachel', 'male')).toBe(false);
+
+      // Female voices
+      expect(isVoiceMatchingGender('21m00Tcm4TlvDq8ikWAM', 'female')).toBe(true);
+      expect(isVoiceMatchingGender('en-US-JennyNeural', 'female')).toBe(true);
+      expect(isVoiceMatchingGender('Rachel', 'female')).toBe(true);
+      expect(isVoiceMatchingGender('pNInz6obpgDQGcFmaJgB', 'female')).toBe(false);
+      expect(isVoiceMatchingGender('en-US-GuyNeural', 'female')).toBe(false);
+      expect(isVoiceMatchingGender('Adam', 'female')).toBe(false);
     });
   });
 

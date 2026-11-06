@@ -101,7 +101,12 @@ class Settings(BaseSettings):
     ENABLE_OAUTH_GITHUB: bool = True
 
     TTS_PROVIDER: str = "edge-tts"
-    TTS_VOICE: str = "en-US-JennyNeural"
+    TTS_VOICE: str = "en-US-AriaNeural"
+
+    # ElevenLabs Studio-Grade Voice Synthesis
+    ELEVENLABS_API_KEY: str | None = None
+    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
+    ELEVENLABS_VOICE_ID: str = "21m00Tcm4TlvDq8ikWAM"
 
     STT_PROVIDER: str = "faster-whisper"
     STT_MODEL: str = "tiny.en"

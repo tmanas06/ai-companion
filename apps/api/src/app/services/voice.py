@@ -1,10 +1,13 @@
 """Voice orchestration service connecting STT, Companion Context, Memory RAG, LLM, and TTS."""
 
 import base64
-from typing import Optional, Annotated
-from uuid import UUID
+import time
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import Annotated, Optional
+from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, Depends
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -16,6 +19,125 @@ from app.schemas.conversation import ChatRequest, ConversationCreate, MessageCre
 from app.schemas.voice import VoiceTurnResponse
 from app.services.conversation import ConversationService, get_conversation_service
 from app.services.emotion import analyze_conversational_emotion
+
+
+@dataclass
+class TTSTiming:
+    """Privacy-safe timing measurements for a TTS stream.
+
+    Contains no conversation content, transcripts, or user data. All values
+    are derived from monotonic clocks and are suitable for metrics emission.
+    """
+
+    turn_id: str
+    request_start_ms: float = 0.0
+    first_byte_ms: Optional[float] = None
+    last_chunk_ms: Optional[float] = None
+    total_chunks: int = 0
+    total_bytes: int = 0
+    cancelled: bool = False
+    error: Optional[str] = None
+
+    @property
+    def time_to_first_byte_ms(self) -> Optional[float]:
+        if self.first_byte_ms is not None and self.request_start_ms > 0:
+            return self.first_byte_ms - self.request_start_ms
+        return None
+
+    @property
+    def total_duration_ms(self) -> Optional[float]:
+        if self.last_chunk_ms is not None and self.request_start_ms > 0:
+            return self.last_chunk_ms - self.request_start_ms
+        return None
+
+
+def infer_companion_gender(companion_name: str, personality: Optional[dict] = None) -> str:
+    """Infer companion gender from personality or name."""
+    if personality and isinstance(personality, dict):
+        g = str(personality.get("gender", "")).lower()
+        if g in ("male", "female"):
+            return g
+    name = (companion_name or "").lower().strip()
+    male_names = {
+        "marcus", "kai", "atlas", "alex", "david", "john", "michael",
+        "jack", "leo", "max", "daniel", "lucas", "ethan", "oliver",
+        "noah", "liam", "arthur", "sam", "will", "charlie", "george", "adam"
+    }
+    return "male" if name in male_names else "female"
+
+
+def resolve_gender_appropriate_voice(
+    requested_voice: Optional[str],
+    companion_name: str,
+    gender: str,
+    provider_type: str = "edge-tts",
+) -> str:
+    """Enforce that male companions strictly receive masculine voices and female companions receive feminine voices."""
+    req = (requested_voice or "").strip().lower()
+    name_clean = (companion_name or "").strip().lower()
+
+    # ElevenLabs IDs & keywords
+    female_markers = {
+        "21m00tcm4tlvdq8ikwam", "exavitqu4vr4xnsdxmal", "xb0fdunxu5powfxdhcwa",
+        "pfzp5jqg7iqjiquc4bku", "cgsgspj2msm6clmckdw9", "rachel", "sarah",
+        "charlotte", "lily", "jessica", "jenny", "ava", "aria", "michelle",
+        "clara", "sonia", "luna", "nova", "sage", "maya", "female", "woman",
+        "en-us-jennyneural", "en-us-arianeural", "en-us-avaneural",
+        "en-us-michelleneural", "en-ca-claraneural", "en-gb-sonianeural",
+    }
+    male_markers = {
+        "pninz6obpgdqgcfmajgb", "jbfqncbsd6rmkjvdrzzb", "tx3lpaxmhkxfdv7voqhj",
+        "bihbv24mwmergaszh58o", "ikne3meq5asn9xlyudcd", "adam", "george",
+        "liam", "will", "charlie", "marcus", "atlas", "kai", "guy", "david",
+        "christopher", "andrew", "brian", "ryan", "male", "man",
+        "en-us-guyneural", "en-us-christopherneural", "en-us-andrewneural",
+        "en-us-brianneural", "en-gb-ryanneural",
+    }
+
+    if gender == "male":
+        # Check if requested voice is invalid or explicitly female
+        is_female = any(m == req or m in req for m in female_markers)
+        if not req or is_female:
+            # Override with character's signature male voice
+            if provider_type == "elevenlabs":
+                signature_map = {
+                    "marcus": "pNInz6obpgDQGcFmaJgB",  # Adam
+                    "atlas": "JBFqnCBsd6RMkjVDRZzb",   # George
+                    "kai": "TX3LPaxmHKxFdv7VOQHJ",     # Liam
+                }
+                return signature_map.get(name_clean, "pNInz6obpgDQGcFmaJgB")
+            else:
+                signature_map = {
+                    "marcus": "en-US-GuyNeural",
+                    "atlas": "en-US-ChristopherNeural",
+                    "kai": "en-US-AndrewNeural",
+                }
+                return signature_map.get(name_clean, "en-US-GuyNeural")
+        return requested_voice or "en-US-GuyNeural"
+    else:
+        # Female companion: check if requested voice is invalid or explicitly male
+        is_male = any(m == req or m in req for m in male_markers)
+        if not req or is_male:
+            # Override with character's signature female voice
+            if provider_type == "elevenlabs":
+                signature_map = {
+                    "aria": "21m00Tcm4TlvDq8ikWAM",    # Rachel
+                    "luna": "EXAVITQu4vr4xnSDxMaL",    # Sarah
+                    "nova": "XB0fDUnXU5powFXDhCwa",    # Charlotte
+                    "sage": "pFZP5JQG7iQjIQuC4Bku",    # Lily
+                    "maya": "cgSgspJ2msm6clMCkdW9",    # Jessica
+                }
+                return signature_map.get(name_clean, "21m00Tcm4TlvDq8ikWAM")
+            else:
+                signature_map = {
+                    "aria": "en-US-JennyNeural",
+                    "luna": "en-US-AvaNeural",
+                    "nova": "en-US-AriaNeural",
+                    "sage": "en-US-MichelleNeural",
+                    "maya": "en-CA-ClaraNeural",
+                }
+                return signature_map.get(name_clean, "en-US-JennyNeural")
+        return requested_voice or "en-US-JennyNeural"
 
 
 class VoiceService:
@@ -54,6 +176,100 @@ class VoiceService:
         if not text or not text.strip():
             return b""
         return await self.tts_provider.synthesize(text.strip(), voice=voice, speed=speed)
+
+    async def stream_synthesize_speech(
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        turn_id: str | None = None,
+    ) -> AsyncIterator[tuple[bytes, TTSTiming]]:
+        """Stream synthesized speech audio chunks incrementally.
+
+        Yields (audio_chunk, timing) tuples. The timing object is updated
+        in-place as chunks are produced, so callers can observe progress.
+
+        Raises:
+            NotImplementedError: If the underlying TTS provider does not
+                support streaming synthesis.
+            ValueError: If synthesis fails.
+        """
+        if not text or not text.strip():
+            return
+
+        timing = TTSTiming(
+            turn_id=turn_id or str(uuid4()),
+            request_start_ms=time.monotonic() * 1000.0,
+        )
+
+        try:
+            chunk_index = 0
+            async for chunk in self.tts_provider.stream_synthesize(
+                text.strip(), voice=voice, speed=speed
+            ):
+                if not chunk:
+                    continue
+                chunk_index += 1
+                timing.total_chunks = chunk_index
+                timing.total_bytes += len(chunk)
+                now_ms = time.monotonic() * 1000.0
+                if timing.first_byte_ms is None:
+                    timing.first_byte_ms = now_ms
+                timing.last_chunk_ms = now_ms
+                yield chunk, timing
+        except NotImplementedError:
+            raise
+        except Exception as e:
+            timing.error = str(e)
+            raise ValueError(f"TTS streaming failed: {e}") from e
+
+    async def stream_synthesize_speech_with_timestamps(
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        turn_id: str | None = None,
+    ) -> AsyncIterator[tuple[dict, TTSTiming]]:
+        """Stream synthesized speech audio chunks with word-level alignment timestamps.
+
+        Yields (chunk_dict, timing) tuples where chunk_dict contains:
+        - "audio": base64 encoded audio chunk
+        - "alignment": word-level timing data
+
+        Raises:
+            NotImplementedError: If the underlying TTS provider does not
+                support streaming synthesis with timestamps.
+            ValueError: If synthesis fails.
+        """
+        if not text or not text.strip():
+            return
+
+        timing = TTSTiming(
+            turn_id=turn_id or str(uuid4()),
+            request_start_ms=time.monotonic() * 1000.0,
+        )
+
+        try:
+            chunk_index = 0
+            async for chunk in self.tts_provider.stream_with_timestamps(
+                text.strip(), voice=voice, speed=speed
+            ):
+                if not chunk:
+                    continue
+                chunk_index += 1
+                timing.total_chunks = chunk_index
+                # chunk["audio"] is base64, decode to get byte length
+                timing.total_bytes += len(base64.b64decode(chunk["audio"]))
+                now_ms = time.monotonic() * 1000.0
+                if timing.first_byte_ms is None:
+                    timing.first_byte_ms = now_ms
+                timing.last_chunk_ms = now_ms
+                yield chunk, timing
+        except NotImplementedError:
+            raise
+        except Exception as e:
+            timing.error = str(e)
+            raise ValueError(f"TTS streaming with timestamps failed: {e}") from e
 
     async def execute_voice_turn(
         self,
@@ -124,13 +340,19 @@ class VoiceService:
             background_tasks=background_tasks,
         )
 
-        # 5. Synthesize TTS audio for companion's reply
-        voice_target = voice or companion.name
+        # 5. Synthesize TTS audio for companion's reply with gender enforcement
+        provider_type = getattr(self.tts_provider, "provider_type", "mock")
+        companion_gender = infer_companion_gender(companion.name, getattr(companion, "personality", None))
+        voice_target = resolve_gender_appropriate_voice(
+            requested_voice=voice,
+            companion_name=companion.name,
+            gender=companion_gender,
+            provider_type=provider_type,
+        )
         audio_data = await self.synthesize_speech(assistant_msg.content, voice=voice_target)
         audio_b64 = base64.b64encode(audio_data).decode("ascii") if audio_data else None
 
-        provider_type = getattr(self.tts_provider, "provider_type", "mock")
-        audio_format = "audio/mpeg" if provider_type == "edge-tts" else "audio/wav"
+        audio_format = "audio/mpeg" if provider_type in ("edge-tts", "elevenlabs") else "audio/wav"
 
         # 6. Analyze conversational emotion for photorealistic video avatar expression
         emotion, emotion_intensity = analyze_conversational_emotion(transcript, assistant_msg.content)
@@ -257,13 +479,19 @@ class VoiceService:
             ),
         )
 
-        # 5. Synthesize TTS audio for companion's greeting
-        voice_target = voice or companion.name
+        # 5. Synthesize TTS audio for companion's greeting with gender enforcement
+        provider_type = getattr(self.tts_provider, "provider_type", "mock")
+        companion_gender = infer_companion_gender(companion.name, getattr(companion, "personality", None))
+        voice_target = resolve_gender_appropriate_voice(
+            requested_voice=voice,
+            companion_name=companion.name,
+            gender=companion_gender,
+            provider_type=provider_type,
+        )
         audio_data = await self.synthesize_speech(greeting_text, voice=voice_target)
         audio_b64 = base64.b64encode(audio_data).decode("ascii") if audio_data else None
 
-        provider_type = getattr(self.tts_provider, "provider_type", "mock")
-        audio_format = "audio/mpeg" if provider_type == "edge-tts" else "audio/wav"
+        audio_format = "audio/mpeg" if provider_type in ("edge-tts", "elevenlabs") else "audio/wav"
 
         sadtalker_job_id: Optional[str] = None
         if settings.SADTALKER_ENABLED and audio_data:

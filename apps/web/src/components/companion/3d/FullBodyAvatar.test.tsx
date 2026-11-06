@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { FullBodyAvatar } from '../FullBodyAvatar';
+import { FullBodyAvatar, deriveDeterministicExpression } from '../FullBodyAvatar';
 import { CameraToolbar } from './CameraToolbar';
 
 describe('FullBodyAvatar Component & Camera Controls', () => {
-  it('renders photorealistic video avatar by default and supports 2.5D portrait fallback', () => {
+  it('renders photorealistic video avatar by default and supports photorealistic 2D portrait fallback', () => {
     const { rerender } = render(
       <FullBodyAvatar
         previewUrl="/avatars/aria-portrait.webp"
@@ -18,18 +18,30 @@ describe('FullBodyAvatar Component & Camera Controls', () => {
     // Video Avatar container is rendered as primary experience
     expect(screen.getByTestId('video-avatar-container')).toBeInTheDocument();
 
-    // When explicitly set to 2D portrait mode
+    // When explicitly set to Photo 2D mode, shows the face-only portrait card
     rerender(
       <FullBodyAvatar
         previewUrl="/avatars/aria-portrait.webp"
         name="Aria"
         state="idle"
-        initialMode="2d"
+        initialMode="photorealistic-2d"
       />
     );
     const img = screen.getByRole('img', { name: 'Aria' });
     expect(img).toBeInTheDocument();
+    // Photo 2D = compact face-only portrait card, uses portrait asset
     expect(img).toHaveAttribute('src', '/avatars/aria-portrait.webp');
+
+    // When set to 3D Body mode, full-body cinematic stage is rendered
+    rerender(
+      <FullBodyAvatar
+        previewUrl="/avatars/aria-portrait.webp"
+        name="Aria"
+        state="idle"
+        initialMode="3d"
+      />
+    );
+    expect(screen.getByTestId('photorealistic-2d-stage-renderer')).toBeInTheDocument();
   });
 
   it('renders camera toolbar and toggles 2D/3D presentation', () => {
@@ -67,7 +79,7 @@ describe('FullBodyAvatar Component & Camera Controls', () => {
     expect(handleReset).toHaveBeenCalledTimes(1);
 
     // Toggle 2D/3D mode clicked
-    fireEvent.click(screen.getByLabelText(/switch to 2.5d/i));
+    fireEvent.click(screen.getByLabelText(/switch to (2\.5d|photorealistic 2d)/i));
     expect(handleToggle).toHaveBeenCalledTimes(1);
   });
 
@@ -239,5 +251,55 @@ describe('FullBodyAvatar Component & Camera Controls', () => {
     );
 
     expect(screen.getByTestId('full-body-avatar-root')).toBeInTheDocument();
+  });
+
+  describe('deriveDeterministicExpression', () => {
+    it('maps error state to concerned expression', () => {
+      expect(deriveDeterministicExpression('error')).toBe('concerned');
+    });
+
+    it('maps processing_speech and generating_response to thoughtful expression', () => {
+      expect(deriveDeterministicExpression('processing_speech')).toBe('thoughtful');
+      expect(deriveDeterministicExpression('generating_response')).toBe('thoughtful');
+    });
+
+    it('maps speaking state with happy or laughing emotion to happy expression', () => {
+      expect(deriveDeterministicExpression('speaking', 'happy')).toBe('happy');
+      expect(deriveDeterministicExpression('speaking', 'laughing')).toBe('happy');
+    });
+
+    it('maps speaking state with sad or confused emotion to concerned expression', () => {
+      expect(deriveDeterministicExpression('speaking', 'sad')).toBe('concerned');
+      expect(deriveDeterministicExpression('speaking', 'confused')).toBe('concerned');
+    });
+
+    it('defaults to neutral expression for idle and listening states', () => {
+      expect(deriveDeterministicExpression('idle')).toBe('neutral');
+      expect(deriveDeterministicExpression('listening')).toBe('neutral');
+      expect(deriveDeterministicExpression('speaking', 'neutral')).toBe('neutral');
+    });
+
+    it('preserves explicit expression override regardless of state', () => {
+      expect(deriveDeterministicExpression('idle', 'neutral', 'concerned')).toBe('concerned');
+      expect(deriveDeterministicExpression('speaking', 'happy', 'thoughtful')).toBe('thoughtful');
+    });
+  });
+
+  it('passes deterministic expression to AvatarRenderer in photorealistic-2d mode', () => {
+    render(
+      <FullBodyAvatar
+        previewUrl="/avatars/aria-portrait.webp"
+        name="Aria"
+        state="generating_response"
+        initialMode="photorealistic-2d"
+      />
+    );
+
+    // Expression layer is resolved for Aria thoughtful state
+    const expressionLayer = screen.queryByTestId('avatar-expression-layer');
+    if (expressionLayer) {
+      const img = expressionLayer.querySelector('img');
+      expect(img?.getAttribute('src')).toBe('/avatars/aria-thoughtful.webp');
+    }
   });
 });

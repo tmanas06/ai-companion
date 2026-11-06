@@ -297,3 +297,90 @@ async def test_voice_greeting_orchestration():
     assert len(added_messages) == 1
     assert added_messages[0].role == "assistant"
 
+
+def test_clean_text_for_speech():
+    from app.providers.tts import clean_text_for_speech
+
+    # Empty
+    assert clean_text_for_speech("") == ""
+
+    # Normal text
+    assert clean_text_for_speech("Hello there!") == "Hello there!"
+
+    # Code block removal
+    input_text = "Here is the code: ```python\nprint('hello')\n``` Enjoy it!"
+    assert clean_text_for_speech(input_text) == "Here is the code: Enjoy it!"
+
+    # Markdown links
+    assert clean_text_for_speech("Check [this site](https://example.com) for details") == "Check this site for details"
+
+    # Stage directions and emojis
+    input_text = "*smiles gently* It is wonderful to see you today! How can I help? 😊 (laughs)"
+    assert clean_text_for_speech(input_text) == "It is wonderful to see you today! How can I help?"
+
+
+@pytest.mark.asyncio
+async def test_elevenlabs_tts_provider():
+    from app.core.exceptions import ProviderConfigurationError
+    from app.providers.tts import ElevenLabsTTSProvider
+
+    # Test voice resolution
+    provider = ElevenLabsTTSProvider(api_key="test_api_key")
+    assert provider.provider_type == "elevenlabs"
+    assert provider.resolve_voice_id("Aria") == "21m00Tcm4TlvDq8ikWAM"
+    assert provider.resolve_voice_id("Rachel") == "21m00Tcm4TlvDq8ikWAM"
+    assert provider.resolve_voice_id("Marcus") == "pNInz6obpgDQGcFmaJgB"
+    assert provider.resolve_voice_id("Adam") == "pNInz6obpgDQGcFmaJgB"
+    assert provider.resolve_voice_id("custom_id_123456789") == "custom_id_123456789"
+
+    # Test missing API key
+    no_key_provider = ElevenLabsTTSProvider(api_key=None)
+    with pytest.raises(ProviderConfigurationError, match="ElevenLabs API key is not configured"):
+        no_key_provider._get_headers()
+
+
+def test_companion_gender_voice_enforcement():
+    from app.services.voice import infer_companion_gender, resolve_gender_appropriate_voice
+
+    # 1. Gender inference
+    assert infer_companion_gender("Marcus") == "male"
+    assert infer_companion_gender("Kai") == "male"
+    assert infer_companion_gender("Atlas") == "male"
+    assert infer_companion_gender("Aria") == "female"
+    assert infer_companion_gender("Luna") == "female"
+    assert infer_companion_gender("Nova") == "female"
+    assert infer_companion_gender("Custom", {"gender": "male"}) == "male"
+    assert infer_companion_gender("Custom", {"gender": "female"}) == "female"
+
+    # 2. Male companion (Marcus) voice enforcement: female voices must be rejected and overridden
+    # ElevenLabs provider
+    marcus_el = resolve_gender_appropriate_voice("en-US-JennyNeural", "Marcus", "male", "elevenlabs")
+    assert marcus_el == "pNInz6obpgDQGcFmaJgB"  # Adam
+
+    marcus_el_rachel = resolve_gender_appropriate_voice("Rachel", "Marcus", "male", "elevenlabs")
+    assert marcus_el_rachel == "pNInz6obpgDQGcFmaJgB"  # Adam
+
+    marcus_el_empty = resolve_gender_appropriate_voice(None, "Marcus", "male", "elevenlabs")
+    assert marcus_el_empty == "pNInz6obpgDQGcFmaJgB"
+
+    # EdgeTTS provider
+    marcus_edge = resolve_gender_appropriate_voice("en-US-JennyNeural", "Marcus", "male", "edge-tts")
+    assert marcus_edge == "en-US-GuyNeural"
+
+    # 3. Female companion (Aria) voice enforcement: male voices must be rejected and overridden
+    # ElevenLabs provider
+    aria_el = resolve_gender_appropriate_voice("Adam", "Aria", "female", "elevenlabs")
+    assert aria_el == "21m00Tcm4TlvDq8ikWAM"  # Rachel
+
+    aria_el_guy = resolve_gender_appropriate_voice("en-US-GuyNeural", "Aria", "female", "elevenlabs")
+    assert aria_el_guy == "21m00Tcm4TlvDq8ikWAM"  # Rachel
+
+    aria_el_empty = resolve_gender_appropriate_voice(None, "Aria", "female", "elevenlabs")
+    assert aria_el_empty == "21m00Tcm4TlvDq8ikWAM"
+
+    # EdgeTTS provider
+    aria_edge = resolve_gender_appropriate_voice("en-US-GuyNeural", "Aria", "female", "edge-tts")
+    assert aria_edge == "en-US-JennyNeural"
+
+
+

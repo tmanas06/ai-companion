@@ -12,6 +12,12 @@ import {
   DEFAULT_AVATAR_3D_CONFIG,
 } from '@ai-companion/shared';
 
+export interface WordAlignment {
+  words: string[];
+  word_start_times_seconds: number[];
+  word_end_times_seconds: number[];
+}
+
 export type CameraPreset = 'face' | 'bust' | 'full';
 
 export interface SceneManagerOptions {
@@ -48,6 +54,7 @@ export class ThreeSceneManager {
   private currentVisemeIntensity = 0;
   private isBlinking = false;
   private blinkTimeoutId: NodeJS.Timeout | null = null;
+  private wordAlignment: WordAlignment | null = null;
 
   constructor(options: SceneManagerOptions) {
     this.gl = options.gl;
@@ -119,6 +126,10 @@ export class ThreeSceneManager {
   public setVoiceState(isSpeaking: boolean, audioLevel: number = 0) {
     this.activeSpeaking = isSpeaking;
     this.audioLevel = audioLevel;
+  }
+
+  public setWordAlignment(alignment: WordAlignment | null) {
+    this.wordAlignment = alignment;
   }
 
   private applyCameraPreset(preset: CameraPreset) {

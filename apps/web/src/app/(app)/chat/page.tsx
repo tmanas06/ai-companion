@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { CompanionPersonalityConfig, inferCompanionGender } from '@/lib/companion-presets';
-import { FullBodyAvatar } from '@/components/companion/FullBodyAvatar';
+import { FullBodyAvatar, AvatarDisplayMode } from '@/components/companion/FullBodyAvatar';
 import { useLiveVoiceCompanion } from '@/hooks/useLiveVoiceCompanion';
 import { VoiceSettingsModal } from '@/components/companion/VoiceSettingsModal';
 import { Avatar3DConfig, migrateAvatarConfig } from '@ai-companion/shared';
@@ -45,6 +45,19 @@ function LiveCompanionStage() {
   const [showTextFallback, setShowTextFallback] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [showCompanionSwitcher, setShowCompanionSwitcher] = useState(false);
+  const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('ai_companion_display_mode');
+        if (saved && ['video', '3d', 'photorealistic-2d'].includes(saved)) {
+          return saved as AvatarDisplayMode;
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+    return 'photorealistic-2d';
+  });
 
   // Infer gender for the selected companion
   const companionGender = inferCompanionGender(selectedCompanion);
@@ -160,6 +173,15 @@ function LiveCompanionStage() {
       loadActiveAvatar();
     }
   }, [user, loadActiveAvatar]);
+
+  // Persist display mode selection
+  useEffect(() => {
+    try {
+      localStorage.setItem('ai_companion_display_mode', displayMode);
+    } catch (e) {
+      // Ignored
+    }
+  }, [displayMode]);
 
   // Refresh active avatar when window regains focus (e.g. user returned from /studio)
   useEffect(() => {
@@ -531,6 +553,8 @@ function LiveCompanionStage() {
             currentEmotion={currentEmotion}
             emotionIntensity={emotionIntensity}
             sadtalkerVideoUrl={sadtalkerVideoUrl}
+            initialMode={displayMode}
+            onChangeDisplayMode={setDisplayMode}
             className="w-full h-full"
           />
         </div>

@@ -88,6 +88,165 @@ export const NEURAL_VOICES: NeuralVoiceOption[] = [
   },
 ];
 
+export interface ElevenLabsVoiceOption {
+  id: string;
+  name: string;
+  gender: 'male' | 'female';
+  description: string;
+  recommendedFor?: string;
+}
+
+export const ELEVENLABS_VOICES: ElevenLabsVoiceOption[] = [
+  // Male ElevenLabs voices
+  {
+    id: 'pNInz6obpgDQGcFmaJgB',
+    name: 'Adam (Deep & Narrative)',
+    gender: 'male',
+    description: 'Deep, resonant, confident conversational tone — classic natural narrator',
+    recommendedFor: 'Marcus',
+  },
+  {
+    id: 'JBFqnCBsd6RMkjVDRZzb',
+    name: 'George (Warm & Articulate)',
+    gender: 'male',
+    description: 'Warm, mature, articulate cadence with thoughtful gravitas',
+    recommendedFor: 'Atlas',
+  },
+  {
+    id: 'TX3LPaxmHKxFdv7VOQHJ',
+    name: 'Liam (Energetic & Youthful)',
+    gender: 'male',
+    description: 'Lively, youthful cadence with expressive warmth and energy',
+    recommendedFor: 'Kai',
+  },
+  {
+    id: 'bIHbv24MWmeRgasZH58o',
+    name: 'Will (Friendly & Conversational)',
+    gender: 'male',
+    description: 'Relaxed, friendly, everyday conversational presence',
+  },
+  {
+    id: 'IKne3meq5aSn9XLyUdCD',
+    name: 'Charlie (Natural & Casual)',
+    gender: 'male',
+    description: 'Casual, confident conversational cadence',
+  },
+
+  // Female ElevenLabs voices
+  {
+    id: '21m00Tcm4TlvDq8ikWAM',
+    name: 'Rachel (Warm & Expressive)',
+    gender: 'female',
+    description: 'Warm, calm, empathetic, and lifelike — ElevenLabs premier female voice',
+    recommendedFor: 'Aria',
+  },
+  {
+    id: 'EXAVITQu4vr4xnSDxMaL',
+    name: 'Sarah (Soft & Expressive)',
+    gender: 'female',
+    description: 'Soft, gentle, intimate, and emotionally rich',
+    recommendedFor: 'Luna',
+  },
+  {
+    id: 'XB0fDUnXU5powFXDhCwa',
+    name: 'Charlotte (Crisp & Radiant)',
+    gender: 'female',
+    description: 'Crisp, radiant, modern, and engaging tone with vibrant clarity',
+    recommendedFor: 'Nova',
+  },
+  {
+    id: 'pFZP5JQG7iQjIQuC4Bku',
+    name: 'Lily (Soothing & Contemplative)',
+    gender: 'female',
+    description: 'Serene, contemplative, quiet, and peaceful presence',
+    recommendedFor: 'Sage',
+  },
+  {
+    id: 'cgSgspJ2msm6clMCkdW9',
+    name: 'Jessica (Bright & Cheerful)',
+    gender: 'female',
+    description: 'Playful, enthusiastic, friendly, and uplifting melody',
+    recommendedFor: 'Maya',
+  },
+];
+
+export function getRecommendedElevenLabsVoice(
+  companionName?: string,
+  gender: 'male' | 'female' = 'female'
+): string {
+  const name = (companionName || '').toLowerCase().trim();
+  const match = ELEVENLABS_VOICES.find((v) => v.recommendedFor?.toLowerCase() === name);
+  if (match) return match.id;
+  return gender === 'male' ? 'pNInz6obpgDQGcFmaJgB' : '21m00Tcm4TlvDq8ikWAM';
+}
+
+export function isVoiceMatchingGender(
+  voiceIdOrName: string | undefined,
+  gender: 'male' | 'female'
+): boolean {
+  if (!voiceIdOrName) return false;
+  const v = voiceIdOrName.toLowerCase().trim();
+
+  // Explicit male IDs and markers
+  const maleMarkers = [
+    'pninz6obpgdqgcfmajgb', // Adam
+    'jbfqncbsd6rmkjvdrzzb', // George
+    'tx3lpaxmhkxfdv7voqhj', // Liam
+    'bihbv24mwmergaszh58o', // Will
+    'ikne3meq5asn9xlyudcd', // Charlie
+    'en-us-guyneural',
+    'en-us-christopherneural',
+    'en-us-andrewneural',
+    'en-us-brianneural',
+    'en-gb-ryanneural',
+    'guy',
+    'adam',
+    'george',
+    'liam',
+    'will',
+    'charlie',
+    'marcus',
+    'atlas',
+    'kai',
+  ];
+
+  // Explicit female IDs and markers
+  const femaleMarkers = [
+    '21m00tcm4tlvdq8ikwam', // Rachel
+    'exavitqu4vr4xnsdxmal', // Sarah
+    'xb0fdunxu5powfxdhcwa', // Charlotte
+    'pfzp5jqg7iqjiquc4bku', // Lily
+    'cgsgspj2msm6clmckdw9', // Jessica
+    'en-us-jennyneural',
+    'en-us-avaneural',
+    'en-us-arianeural',
+    'en-us-michelleneural',
+    'en-ca-claraneural',
+    'en-gb-sonianeural',
+    'rachel',
+    'sarah',
+    'charlotte',
+    'lily',
+    'jessica',
+    'jenny',
+    'ava',
+    'aria',
+    'luna',
+    'nova',
+    'sage',
+    'maya',
+  ];
+
+  const isMale = maleMarkers.some((id) => v === id || v.includes(id));
+  const isFemale = femaleMarkers.some((id) => v === id || v.includes(id));
+
+  if (gender === 'male') {
+    return isMale && !isFemale;
+  } else {
+    return isFemale && !isMale;
+  }
+}
+
 export function getRecommendedNeuralVoice(companionName?: string, gender: 'male' | 'female' = 'female'): string {
   const name = (companionName || '').toLowerCase().trim();
   const match = NEURAL_VOICES.find((v) => v.recommendedFor?.toLowerCase() === name);
@@ -100,6 +259,7 @@ export interface CompanionVoiceProfile {
   speechRate: number;
   preferredKeywords: string[];
   neuralVoice: string;
+  elevenLabsVoice: string;
 }
 
 /**
@@ -180,48 +340,56 @@ export const COMPANION_VOICE_PROFILES: Record<string, CompanionVoiceProfile> = {
     speechRate: 0.98,
     preferredKeywords: ['samantha', 'zira', 'female1', 'natural', 'aria'],
     neuralVoice: 'en-US-JennyNeural',
+    elevenLabsVoice: '21m00Tcm4TlvDq8ikWAM',
   },
   marcus: {
     pitch: 0.92,
     speechRate: 0.95,
     preferredKeywords: ['david', 'daniel', 'alex', 'male1', 'guy'],
     neuralVoice: 'en-US-GuyNeural',
+    elevenLabsVoice: 'pNInz6obpgDQGcFmaJgB',
   },
   luna: {
     pitch: 1.08,
     speechRate: 1.02,
     preferredKeywords: ['victoria', 'jenny', 'female2', 'steph', 'anika'],
     neuralVoice: 'en-US-AvaNeural',
+    elevenLabsVoice: 'EXAVITQu4vr4xnSDxMaL',
   },
   kai: {
     pitch: 0.96,
     speechRate: 1.04,
     preferredKeywords: ['mark', 'oliver', 'ryan', 'male2', 'fred'],
     neuralVoice: 'en-US-AndrewNeural',
+    elevenLabsVoice: 'TX3LPaxmHKxFdv7VOQHJ',
   },
   nova: {
     pitch: 1.06,
     speechRate: 1.02,
     preferredKeywords: ['google', 'clara', 'sonia', 'female3', 'natural'],
     neuralVoice: 'en-US-AriaNeural',
+    elevenLabsVoice: 'XB0fDUnXU5powFXDhCwa',
   },
   atlas: {
     pitch: 0.90,
     speechRate: 0.92,
     preferredKeywords: ['george', 'guy', 'male3', 'arthur', 'richard'],
     neuralVoice: 'en-US-ChristopherNeural',
+    elevenLabsVoice: 'JBFqnCBsd6RMkjVDRZzb',
   },
   sage: {
     pitch: 0.98,
     speechRate: 0.94,
     preferredKeywords: ['karen', 'amy', 'female4', 'susan', 'linda'],
     neuralVoice: 'en-US-MichelleNeural',
+    elevenLabsVoice: 'pFZP5JQG7iQjIQuC4Bku',
   },
   maya: {
     pitch: 1.04,
     speechRate: 1.04,
     preferredKeywords: ['clara', 'emma', 'joanna', 'female5', 'victoria', 'jenny'],
     neuralVoice: 'en-CA-ClaraNeural',
+    elevenLabsVoice: 'cgSgspJ2msm6clMCkdW9',
   },
 };
 
@@ -244,6 +412,7 @@ export function getCompanionVoiceProfile(
       speechRate: 0.96,
       preferredKeywords: ['david', 'male', 'guy', 'daniel', 'alex'],
       neuralVoice: 'en-US-GuyNeural',
+      elevenLabsVoice: 'pNInz6obpgDQGcFmaJgB',
     };
   }
 
@@ -252,6 +421,7 @@ export function getCompanionVoiceProfile(
     speechRate: 1.0,
     preferredKeywords: ['female', 'samantha', 'zira', 'jenny', 'victoria'],
     neuralVoice: 'en-US-JennyNeural',
+    elevenLabsVoice: '21m00Tcm4TlvDq8ikWAM',
   };
 }
 

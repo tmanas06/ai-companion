@@ -62,6 +62,8 @@ export const VISEME_APERTURE_MAP: Record<VisemeType, number> = {
 
 import { Avatar3DConfig } from '@ai-companion/shared';
 
+export type AvatarExpression = 'neutral' | 'happy' | 'thoughtful' | 'concerned';
+
 export interface AvatarRendererProps {
   config?: AvatarConfig | Avatar3DConfig;
   previewUrl?: string | null;
@@ -73,6 +75,9 @@ export interface AvatarRendererProps {
   isSpeaking?: boolean;
   visemes?: VisemeCue[];
   currentTime?: number; // Active playback time in seconds
+  expression?: AvatarExpression;
+  framing?: 'face' | 'upper' | 'full';
+  stageMode?: boolean;
 }
 
 export interface CompanionLandmarks {
@@ -88,8 +93,14 @@ export interface CompanionLandmarks {
 
 export interface ResolvedAvatarAssets {
   portraitUrl: string;
+  fullbodyUrl?: string | null;
   blinkUrl: string | null;
   speakUrl: string | null;
+  expressions?: {
+    happy?: string | null;
+    thoughtful?: string | null;
+    concerned?: string | null;
+  };
   landmarks: CompanionLandmarks;
 }
 
@@ -109,8 +120,14 @@ export function resolveCompanionAssets(
   if (urlLower.includes('aria') || nameLower.includes('aria')) {
     return {
       portraitUrl: '/avatars/aria-portrait.webp',
+      fullbodyUrl: '/avatars/aria-fullbody.webp',
       blinkUrl: '/avatars/aria-blink.webp',
       speakUrl: '/avatars/aria-speak.webp',
+      expressions: {
+        happy: '/avatars/aria-happy.webp',
+        thoughtful: '/avatars/aria-thoughtful.webp',
+        concerned: '/avatars/aria-concerned.webp',
+      },
       landmarks: {
         eyeX: '49.6%',
         eyeY: '36.0%',
@@ -128,6 +145,7 @@ export function resolveCompanionAssets(
   if (urlLower.includes('marcus') || nameLower.includes('marcus')) {
     return {
       portraitUrl: '/avatars/marcus-portrait.webp',
+      fullbodyUrl: '/avatars/marcus-fullbody.webp',
       blinkUrl: '/avatars/marcus-blink.webp',
       speakUrl: '/avatars/marcus-speak.webp',
       landmarks: {
@@ -147,6 +165,7 @@ export function resolveCompanionAssets(
   if (urlLower.includes('elena') || nameLower.includes('elena')) {
     return {
       portraitUrl: '/avatars/elena-portrait.webp',
+      fullbodyUrl: '/avatars/elena-fullbody.webp',
       blinkUrl: '/avatars/elena-blink.webp',
       speakUrl: '/avatars/elena-speak.webp',
       landmarks: {
@@ -166,6 +185,7 @@ export function resolveCompanionAssets(
   if (urlLower.includes('liam') || nameLower.includes('liam')) {
     return {
       portraitUrl: '/avatars/liam-portrait.webp',
+      fullbodyUrl: '/avatars/liam-fullbody.webp',
       blinkUrl: '/avatars/liam-blink.webp',
       speakUrl: '/avatars/liam-speak.webp',
       landmarks: {
@@ -209,17 +229,26 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
   isSpeaking = false,
   visemes,
   currentTime,
+  expression = 'neutral',
+  framing = 'upper',
+  stageMode = false,
 }) => {
   const [isBlinking, setIsBlinking] = useState(false);
   const [mouthIntensity, setMouthIntensity] = useState(0);
   const [imageError, setImageError] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [failedExpressions, setFailedExpressions] = useState<Set<string>>(() => new Set());
   const blinkTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const activeSpeaking = isSpeaking || state === 'speaking';
   const isListening = state === 'listening';
 
   const resolved = resolveCompanionAssets(previewUrl, name);
+
+  const activeExpressionUrl =
+    expression && expression !== 'neutral' && resolved?.expressions
+      ? resolved.expressions[expression] ?? null
+      : null;
 
   // Detect accessibility prefers-reduced-motion
   useEffect(() => {
@@ -388,10 +417,241 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
     );
   }
 
-  const { portraitUrl, blinkUrl, speakUrl, landmarks } = resolved;
-  // Use previewUrl for base img src attribute so test assertions pass directly
-  const baseImgSrc = previewUrl || portraitUrl;
+  const { portraitUrl, fullbodyUrl, blinkUrl, speakUrl, landmarks } = resolved;
+  const hasFullBody = !!fullbodyUrl;
+  const stageBaseImg = fullbodyUrl || previewUrl || portraitUrl;
+  const baseImgSrc = stageMode ? stageBaseImg : (previewUrl || portraitUrl);
 
+  // Smooth camera framing transform for stage mode (centered on head/torso at 18% Y)
+  const framingTransformClass = (() => {
+    switch (framing) {
+      case 'face':
+        return 'scale-[2.6] translate-y-[12%]';
+      case 'upper':
+        return 'scale-[1.85] translate-y-[6%]';
+      case 'full':
+      default:
+        return 'scale-100 translate-y-0';
+    }
+  })();
+
+  // 1. Full Stage Presentation Mode — GTA-grade Cinematic Rendering
+  if (stageMode) {
+    // Voice-state reactive rim light colours (simulates GTA bounce lighting)
+    const rimColor = activeSpeaking
+      ? 'rgba(167,139,250,0.55)'
+      : isListening
+      ? 'rgba(52,211,153,0.45)'
+      : 'rgba(148,163,184,0.22)';
+
+    const warmFill = activeSpeaking
+      ? 'rgba(251,191,36,0.13)'
+      : 'rgba(253,224,164,0.07)';
+
+    return (
+      <div
+        data-testid="photorealistic-2d-stage-renderer"
+        className={`relative w-full h-full flex flex-col items-center justify-center select-none overflow-hidden ${className}`}
+      >
+        {/* ── Key Light: warm diagonal fill from upper-left ── */}
+        <div
+          className="absolute inset-0 pointer-events-none transition-all duration-1000"
+          style={{ background: `radial-gradient(ellipse 60% 65% at 32% 15%, ${warmFill} 0%, transparent 65%)` }}
+          aria-hidden="true"
+        />
+
+        {/* ── Ambient Voice-Reactive Back Light ── */}
+        <div
+          className={`absolute inset-0 pointer-events-none transition-all duration-1000 ${
+            activeSpeaking
+              ? 'opacity-45 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(139,92,246,0.32)_0%,transparent_70%)]'
+              : isListening
+              ? 'opacity-40 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(52,211,153,0.28)_0%,transparent_70%)]'
+              : 'opacity-20 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(99,102,241,0.18)_0%,transparent_70%)]'
+          }`}
+          aria-hidden="true"
+        />
+
+        {/* ── Hard Specular Rim Light (right edge, like GTA NPC lighting) ── */}
+        <div
+          className="absolute inset-0 pointer-events-none transition-all duration-700"
+          style={{ background: `linear-gradient(268deg, ${rimColor} 0%, transparent 26%)` }}
+          aria-hidden="true"
+        />
+
+        {/* ── Layered Contact Shadows (umbra + penumbra + AO) ── */}
+        <div
+          className={`absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-32 sm:w-44 h-3 sm:h-4 bg-black/90 rounded-full pointer-events-none transition-all duration-700 ${framing === 'full' ? 'opacity-100 scale-100' : 'opacity-30 scale-75'}`}
+          style={{ filter: 'blur(5px)' }}
+          aria-hidden="true"
+        />
+        <div
+          className={`absolute bottom-3 sm:bottom-7 left-1/2 -translate-x-1/2 w-52 sm:w-80 h-7 sm:h-12 bg-black/65 rounded-full pointer-events-none transition-all duration-700 ${framing === 'full' ? 'opacity-100 scale-100' : 'opacity-25 scale-75'}`}
+          style={{ filter: 'blur(20px)' }}
+          aria-hidden="true"
+        />
+        <div
+          className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-72 sm:w-[420px] h-12 sm:h-20 bg-black/45 rounded-full pointer-events-none transition-all duration-700 ${framing === 'full' ? 'opacity-80' : 'opacity-20'}`}
+          style={{ filter: 'blur(36px)' }}
+          aria-hidden="true"
+        />
+
+        {/* ── Character Stage Figure ── */}
+        <div className="relative h-[82vh] max-h-[820px] aspect-[9/16] flex items-center justify-center pointer-events-none">
+          {/* Camera Framing Rig */}
+          <div
+            data-testid="avatar-camera-framing-rig"
+            className="relative w-full h-full transform-gpu transition-transform duration-700 ease-out flex items-center justify-center"
+            style={{
+              transform:
+                framing === 'face'
+                  ? 'scale(2.6) translateY(12%)'
+                  : framing === 'upper'
+                  ? 'scale(1.85) translateY(6%)'
+                  : 'scale(1) translateY(0%)',
+              transformOrigin: '50% 18%',
+            }}
+          >
+            {/* Breathing & Posture Motion Layer */}
+            <div
+              data-testid="avatar-head-container"
+              className={`relative w-full h-full transform-gpu transition-all duration-700 ease-out ${postureTransformClass}`}
+              style={{
+                animation: reducedMotion ? 'none' : 'ai-companion-breathe 6s ease-in-out infinite',
+                transformOrigin: '50% 18%',
+              }}
+            >
+              {/* ── Subsurface Scattering glow (warm skin translucency bloom) ── */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={stageBaseImg}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+                style={{
+                  filter: 'blur(22px) saturate(1.5) brightness(1.2)',
+                  opacity: activeSpeaking ? 0.20 : 0.11,
+                  mixBlendMode: 'screen',
+                  maskImage: fullbodyUrl
+                    ? undefined
+                    : 'radial-gradient(ellipse 65% 80% at 50% 48%, black 50%, transparent 95%)',
+                  WebkitMaskImage: fullbodyUrl
+                    ? undefined
+                    : 'radial-gradient(ellipse 65% 80% at 50% 48%, black 50%, transparent 95%)',
+                }}
+              />
+
+              {/* ── Base Character — GTA-style colour grade ── */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={stageBaseImg}
+                alt={name}
+                onError={() => setImageError(true)}
+                className="w-full h-full object-contain select-none pointer-events-none"
+                style={{
+                  filter: [
+                    'drop-shadow(0 28px 56px rgba(0,0,0,0.90))',
+                    'drop-shadow(0 10px 20px rgba(0,0,0,0.65))',
+                    'drop-shadow(0 2px 6px rgba(0,0,0,0.5))',
+                    'contrast(1.07)',
+                    'saturate(1.14)',
+                    activeSpeaking ? 'brightness(1.05)' : 'brightness(1.00)',
+                  ].join(' '),
+                  maskImage: fullbodyUrl
+                    ? undefined
+                    : 'radial-gradient(ellipse 65% 80% at 50% 48%, black 50%, transparent 95%)',
+                  WebkitMaskImage: fullbodyUrl
+                    ? undefined
+                    : 'radial-gradient(ellipse 65% 80% at 50% 48%, black 50%, transparent 95%)',
+                }}
+              />
+
+              {/* Expression Overlay */}
+              {!hasFullBody && activeExpressionUrl && !failedExpressions.has(activeExpressionUrl) && (
+                <div
+                  data-testid="avatar-expression-layer"
+                  className={`absolute inset-0 pointer-events-none ${reducedMotion ? 'transition-none' : 'transition-opacity duration-300 ease-in-out'} opacity-100`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={activeExpressionUrl}
+                    alt=""
+                    aria-hidden="true"
+                    onError={() => { setFailedExpressions((prev) => new Set(prev).add(activeExpressionUrl)); }}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+
+              {/* Eyelid Blink Layer */}
+              {!hasFullBody && blinkUrl && (
+                <div
+                  data-testid="avatar-blink-layer"
+                  className={`absolute inset-0 pointer-events-none transition-opacity duration-75 ${isBlinking ? 'opacity-100' : 'opacity-0'}`}
+                  style={{
+                    maskImage: `radial-gradient(ellipse ${landmarks.eyeWidth} ${landmarks.eyeHeight} at ${landmarks.eyeX} ${landmarks.eyeY}, black 60%, transparent 100%)`,
+                    WebkitMaskImage: `radial-gradient(ellipse ${landmarks.eyeWidth} ${landmarks.eyeHeight} at ${landmarks.eyeX} ${landmarks.eyeY}, black 60%, transparent 100%)`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={blinkUrl} alt="" aria-hidden="true" className="w-full h-full object-cover" />
+                </div>
+              )}
+
+              {/* Speech Mouth Layer */}
+              {!hasFullBody && speakUrl && activeSpeaking && (
+                <div
+                  data-testid="avatar-speak-layer"
+                  className="absolute inset-0 pointer-events-none transition-opacity duration-75 ease-out"
+                  style={{
+                    opacity: Math.min(1.0, mouthIntensity * 1.15),
+                    maskImage: `radial-gradient(ellipse ${landmarks.mouthWidth} ${landmarks.mouthHeight} at ${landmarks.mouthX} ${landmarks.mouthY}, black 65%, transparent 100%)`,
+                    WebkitMaskImage: `radial-gradient(ellipse ${landmarks.mouthWidth} ${landmarks.mouthHeight} at ${landmarks.mouthX} ${landmarks.mouthY}, black 65%, transparent 100%)`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={speakUrl} alt="" aria-hidden="true" className="w-full h-full object-cover" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Depth-of-Field Lens Vignette (pulls eye to subject, blurs periphery) ── */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse 60% 72% at 50% 40%, transparent 52%, rgba(0,0,0,0.60) 100%)' }}
+          aria-hidden="true"
+        />
+
+        {/* ── Cinematic Colour Grade (cool top, warm bottom — filmic look) ── */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          style={{
+            background: 'linear-gradient(180deg, rgba(99,102,241,0.5) 0%, transparent 45%, rgba(251,191,36,0.25) 100%)',
+            mixBlendMode: 'color',
+          }}
+          aria-hidden="true"
+        />
+
+        {/* ── Film Grain Noise (SVG data-URI, minimal memory) ── */}
+        {!reducedMotion && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              opacity: 0.032,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")`,
+              backgroundSize: '180px 180px',
+              mixBlendMode: 'overlay',
+            }}
+            aria-hidden="true"
+          />
+        )}
+      </div>
+    );
+  }
+
+  // 2. Compact / Standalone Card Mode (Companion Switchers, Onboarding, Previews)
   return (
     <div
       className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center bg-slate-950 select-none ${stateAura} ${className}`}
@@ -407,7 +667,6 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
       )}
 
       {/* Unified Head Motion Container */}
-      {/* Base, Blink, and Speak layers are ALL nested inside this container so they breathe and tilt together without any detached layer shift */}
       <div
         data-testid="avatar-head-container"
         className={`relative w-full h-full transform-gpu transition-transform duration-500 ease-out ${postureTransformClass}`}
@@ -424,6 +683,27 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
           onError={() => setImageError(true)}
           className="w-full h-full object-cover select-none pointer-events-none"
         />
+
+        {/* Expression Overlay Layer (subtle cross-fade over base portrait, falls back smoothly to base) */}
+        {activeExpressionUrl && !failedExpressions.has(activeExpressionUrl) && (
+          <div
+            data-testid="avatar-expression-layer"
+            className={`absolute inset-0 pointer-events-none ${
+              reducedMotion ? 'transition-none' : 'transition-opacity duration-300 ease-in-out'
+            } opacity-100`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={activeExpressionUrl}
+              alt=""
+              aria-hidden="true"
+              onError={() => {
+                setFailedExpressions((prev) => new Set(prev).add(activeExpressionUrl));
+              }}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        )}
 
         {/* Natural Eyelid Blink Layer (feathered to eye region) */}
         {blinkUrl && (
