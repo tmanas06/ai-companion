@@ -1,0 +1,157 @@
+from typing import Optional
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.core.security import get_current_user
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationUpdate,
+    ConversationResponse,
+    ConversationListResponse,
+    MessageCreate,
+    MessageResponse,
+    MessageListResponse,
+    ChatRequest,
+    ChatResponse,
+)
+from app.services.conversation import ConversationService, get_conversation_service
+from app.models import User
+
+
+router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+@router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
+async def create_conversation(
+    data: ConversationCreate,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Create a new conversation."""
+    try:
+        conversation = await service.create_conversation(current_user.id, data)
+        return conversation
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("", response_model=ConversationListResponse)
+async def list_conversations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """List conversations for the current user."""
+    conversations, total = await service.list_conversations(
+        current_user.id, page, page_size
+    )
+    return ConversationListResponse(
+        conversations=conversations,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{conversation_id}", response_model=ConversationResponse)
+async def get_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Get a conversation by ID."""
+    conversation = await service.get_conversation(current_user.id, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return conversation
+
+
+@router.patch("/{conversation_id}", response_model=ConversationResponse)
+async def update_conversation(
+    conversation_id: UUID,
+    data: ConversationUpdate,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Update a conversation."""
+    conversation = await service.update_conversation(current_user.id, conversation_id, data)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return conversation
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Delete a conversation (soft delete)."""
+    success = await service.delete_conversation(current_user.id, conversation_id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+
+@router.get("/{conversation_id}/messages", response_model=MessageListResponse)
+async def list_messages(
+    conversation_id: UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """List messages in a conversation."""
+    # Verify conversation ownership
+    conversation = await service.get_conversation(current_user.id, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    messages, total = await service.get_messages(conversation_id, page, page_size)
+    return MessageListResponse(
+        messages=messages,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/{conversation_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+async def add_message(
+    conversation_id: UUID,
+    data: MessageCreate,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Add a message to a conversation."""
+    conversation = await service.get_conversation(current_user.id, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    message = await service.add_message(conversation_id, data)
+    return message
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    """Send a message and get AI response."""
+    try:
+        conversation, user_message, assistant_message = await service.chat(current_user.id, request)
+        return ChatResponse(
+            conversation_id=conversation.id,
+            message_id=assistant_message.id,
+            content=assistant_message.content,
+            model=assistant_message.model or "unknown",
+            token_count=assistant_message.token_count,
+            finish_reason=assistant_message.metadata.get("finish_reason") if assistant_message.metadata else None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate response")
