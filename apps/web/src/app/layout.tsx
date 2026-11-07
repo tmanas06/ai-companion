@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { PrivyAuthProvider } from '@/components/auth/PrivyAuthProvider';
 import { AuthProvider } from '@/context/AuthContext';
 import { AppLayout } from '@/components/AppLayout';
 import './globals.css';
@@ -36,9 +37,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 antialiased">
-        <AuthProvider>
-          <AppLayout>{children}</AppLayout>
-        </AuthProvider>
+        <PrivyAuthProvider>
+          <AuthProvider>
+            <AppLayout>{children}</AppLayout>
+          </AuthProvider>
+        </PrivyAuthProvider>
       </body>
     </html>
   );

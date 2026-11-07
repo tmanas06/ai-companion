@@ -13,9 +13,11 @@ from app.core.security import (
     verify_password,
     get_current_user,
 )
+from jose import jwt
 from app.models.user import User
 from app.schemas.auth import (
     GoogleAuthRequest,
+    PrivyAuthRequest,
     RefreshRequest,
     TokenResponse,
     UserLogin,
@@ -89,57 +91,56 @@ async def login(credentials: UserLogin, session: AsyncSession = Depends(get_db))
     )
 
 
-@router.post("/google", response_model=TokenResponse)
-async def google_login(payload: GoogleAuthRequest, session: AsyncSession = Depends(get_db)):
-    """Authenticate with Google ID Token and automatically create an EVM wallet if needed."""
-    credential = payload.credential.strip()
-    if not credential:
+@router.post("/privy", response_model=TokenResponse)
+async def privy_login(payload: PrivyAuthRequest, session: AsyncSession = Depends(get_db)):
+    """Authenticate with Privy and automatically provision or link an EVM wallet."""
+    token = (payload.token or "").strip()
+    privy_sub = (payload.privy_user_id or "").strip() or None
+    email = payload.email
+    full_name = payload.full_name
+    wallet_address = payload.wallet_address
+
+    if not token and not privy_sub:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google credential token is required",
+            detail="Privy authentication token or user ID is required",
         )
 
-    # 1. Verify token with Google's tokeninfo API
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://oauth2.googleapis.com/tokeninfo",
-                params={"id_token": credential},
-            )
-            if resp.status_code != 200:
+    # 1. Decode token claims if token provided
+    if token:
+        try:
+            unverified_claims = jwt.get_unverified_claims(token)
+            if not privy_sub:
+                privy_sub = unverified_claims.get("sub")
+            if not email and unverified_claims.get("email"):
+                email = unverified_claims.get("email")
+
+            # Validate audience if PRIVY_APP_ID is configured
+            expected_app_id = settings.PRIVY_APP_ID
+            aud = unverified_claims.get("aud")
+            if expected_app_id and aud and aud != expected_app_id:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid or expired Google token",
+                    detail="Privy token audience mismatch",
                 )
-            token_info = resp.json()
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Google authentication service temporarily unreachable",
-        ) from exc
+        except HTTPException:
+            raise
+        except Exception:
+            pass
 
-    google_sub = token_info.get("sub")
-    email = token_info.get("email")
-    full_name = token_info.get("name") or token_info.get("given_name")
-    email_verified = token_info.get("email_verified") in (True, "true", "True")
-
-    if not google_sub or not email:
+    if not privy_sub:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token missing required Google user information",
+            detail="Token missing required Privy user information",
         )
 
-    # 2. Check audience if GOOGLE_CLIENT_ID is configured
-    expected_client_id = settings.GOOGLE_CLIENT_ID
-    token_aud = token_info.get("aud")
-    if expected_client_id and token_aud != expected_client_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Google token audience mismatch",
-        )
+    # 2. Derive email if absent (e.g. wallet-only sign-in)
+    if not email:
+        clean_id = privy_sub.replace("did:privy:", "").replace(":", "_")
+        email = f"{clean_id}@privy.user"
 
     # 3. Find or create user
-    result = await session.execute(select(User).where(User.google_id == google_sub))
+    result = await session.execute(select(User).where(User.privy_id == privy_sub))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -147,28 +148,34 @@ async def google_login(payload: GoogleAuthRequest, session: AsyncSession = Depen
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
         if user:
-            # Link existing account to Google
-            user.google_id = google_sub
-            if email_verified and not user.email_verified:
-                user.email_verified = True
+            # Link existing account to Privy
+            user.privy_id = privy_sub
 
     if user:
-        # If user existed but did not have a wallet yet, generate one
+        # If user existed but did not have a wallet yet, link privy wallet or generate one
         if not user.wallet_address:
-            wallet_addr, enc_key = create_and_encrypt_wallet()
-            user.wallet_address = wallet_addr
-            user.encrypted_wallet_key = enc_key
+            if wallet_address:
+                user.wallet_address = wallet_address
+            else:
+                wallet_addr, enc_key = create_and_encrypt_wallet()
+                user.wallet_address = wallet_addr
+                user.encrypted_wallet_key = enc_key
             session.add(user)
             await session.commit()
             await session.refresh(user)
     else:
-        # Auto-create new user + Auto-generate EVM wallet
-        wallet_addr, enc_key = create_and_encrypt_wallet()
+        # Auto-create new user + wallet
+        if wallet_address:
+            wallet_addr = wallet_address
+            enc_key = None
+        else:
+            wallet_addr, enc_key = create_and_encrypt_wallet()
+
         user = User(
             email=email,
-            full_name=full_name,
-            email_verified=email_verified,
-            google_id=google_sub,
+            full_name=full_name or "Privy User",
+            email_verified=True,
+            privy_id=privy_sub,
             wallet_address=wallet_addr,
             encrypted_wallet_key=enc_key,
             is_active=True,

@@ -41,6 +41,17 @@ class OllamaProvider(BaseProvider):
         from app.core.config import settings
         return getattr(settings, "OLLAMA_DEFAULT_MODEL", None) or os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.1:8b")
 
+    def _inference_options(self, request: CompletionRequest) -> dict:
+        from app.core.config import settings
+
+        options = {
+            "temperature": request.temperature,
+            "num_ctx": settings.OLLAMA_NUM_CTX,
+        }
+        if request.max_tokens:
+            options["num_predict"] = request.max_tokens
+        return options
+
     async def _get_client(self) -> "httpx.AsyncClient":
         if self._client is None:
             self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0)
@@ -111,13 +122,9 @@ class OllamaProvider(BaseProvider):
         payload = {
             "model": request.model,
             "messages": self._build_messages(request),
-            "options": {
-                "temperature": request.temperature,
-            },
+            "options": self._inference_options(request),
             "stream": False,
         }
-        if request.max_tokens:
-            payload["options"]["num_predict"] = request.max_tokens
 
         try:
             response = await client.post("/api/chat", json=payload)
@@ -151,13 +158,9 @@ class OllamaProvider(BaseProvider):
         payload = {
             "model": request.model,
             "messages": self._build_messages(request),
-            "options": {
-                "temperature": request.temperature,
-            },
+            "options": self._inference_options(request),
             "stream": True,
         }
-        if request.max_tokens:
-            payload["options"]["num_predict"] = request.max_tokens
 
         try:
             async with client.stream("POST", "/api/chat", json=payload) as response:

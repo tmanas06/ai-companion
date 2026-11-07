@@ -39,6 +39,10 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(String(100), unique=True, nullable=True, index=True),
     )
+    privy_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(100), unique=True, nullable=True, index=True),
+    )
     is_active: bool = Field(default=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

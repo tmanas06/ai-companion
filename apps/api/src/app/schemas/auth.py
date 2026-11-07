@@ -16,6 +16,14 @@ class GoogleAuthRequest(BaseModel):
     credential: str
 
 
+class PrivyAuthRequest(BaseModel):
+    token: str = ""
+    privy_user_id: str | None = None
+    email: str | None = None
+    wallet_address: str | None = None
+    full_name: str | None = None
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

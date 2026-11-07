@@ -50,6 +50,12 @@ class Settings(BaseSettings):
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_DEFAULT_MODEL: str = "qwen2.5:3b"
+    OLLAMA_NUM_CTX: int = Field(
+        default=4096,
+        ge=512,
+        le=32768,
+        description="Maximum Ollama context window. Smaller values reduce local memory use and latency.",
+    )
 
     EMBEDDING_PROVIDER: str | None = Field(
         default=None,
@@ -96,11 +102,11 @@ class Settings(BaseSettings):
     ENABLE_VOICE: bool = False
     ENABLE_MEMORY_EXTRACTION: bool = True
     ENABLE_AVATAR_CUSTOMIZATION: bool = True
-    ENABLE_OAUTH_GOOGLE: bool = True
+    ENABLE_OAUTH_PRIVY: bool = True
     ENABLE_OAUTH_APPLE: bool = False
     ENABLE_OAUTH_GITHUB: bool = True
-    GOOGLE_CLIENT_ID: str | None = None
-    GOOGLE_CLIENT_SECRET: str | None = None
+    PRIVY_APP_ID: str = "cmw51o126004a0gjt3pfuddy1"
+    PRIVY_APP_SECRET: str = "privy_app_secret_5XyYhWLSjGin2YVwp1pK4omPGezEXNRBZxC4LY9ebwmH8s6VeuCGJ9CecAsdh5Gb14r2mcGuHVaH5VWoK9d4jSoA"
 
     TTS_PROVIDER: str = "edge-tts"
     TTS_VOICE: str = "en-US-AriaNeural"

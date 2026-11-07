@@ -21,7 +21,13 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName?: string) => Promise<void>;
-  loginWithGoogle: (credential: string) => Promise<void>;
+  loginWithPrivy: (payload: {
+    token: string;
+    privy_user_id: string;
+    email?: string;
+    wallet_address?: string;
+    full_name?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -84,17 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data);
   }
 
-  async function loginWithGoogle(credential: string) {
-    const response = await fetch('/api/auth/google', {
+  async function loginWithPrivy(payload: {
+    token: string;
+    privy_user_id: string;
+    email?: string;
+    wallet_address?: string;
+    full_name?: string;
+  }) {
+    const response = await fetch('/api/auth/privy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.detail || 'Google authentication failed');
+      throw new Error(data.detail || 'Privy authentication failed');
     }
 
     // Refresh user to get profile including wallet_address
@@ -115,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         login,
         register,
-        loginWithGoogle,
+        loginWithPrivy,
         logout,
         refreshUser,
       }}

@@ -288,3 +288,41 @@ async def test_missing_refresh_token():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/v1/auth/refresh", json={})
         assert response.status_code == 422  # Validation error
+
+
+@pytest.mark.asyncio
+async def test_privy_auth_flow():
+    """Test Privy authentication, user creation, and EVM wallet auto-provisioning."""
+    import uuid
+    random_sub = f"did:privy:{uuid.uuid4().hex}"
+    random_email = f"user_{uuid.uuid4().hex[:8]}@example.com"
+    custom_wallet = "0x" + uuid.uuid4().hex[:40]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. Login with Privy user info and custom wallet
+        res = await client.post(
+            "/api/v1/auth/privy",
+            json={
+                "privy_user_id": random_sub,
+                "email": random_email,
+                "wallet_address": custom_wallet,
+                "full_name": "Privy Tester",
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert "access_token" in data
+        assert "refresh_token" in data
+        assert data["wallet_address"] == custom_wallet
+
+        # 2. Login again with same privy_id should return same account
+        res2 = await client.post(
+            "/api/v1/auth/privy",
+            json={
+                "privy_user_id": random_sub,
+                "email": random_email,
+            },
+        )
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2["wallet_address"] == custom_wallet

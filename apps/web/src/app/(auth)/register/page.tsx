@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
-import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
+import { PrivySignInButton } from '@/components/auth/PrivySignInButton';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -66,7 +66,7 @@ export default function RegisterPage() {
           )}
 
           <div className="mb-6">
-            <GoogleSignInButton text="signup_with" onError={(msg) => setError(msg)} />
+            <PrivySignInButton text="Sign up with Privy" onError={(msg) => setError(msg)} />
           </div>
 
           <div className="relative mb-6">

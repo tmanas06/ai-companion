@@ -1205,7 +1205,7 @@ export function useLiveVoiceCompanion({
 
   // Prime microphone permission and browser audio playback from one user gesture.
   const enableVoice = useCallback(async (): Promise<boolean> => {
-    let unlockAudio = unlockedAudioRef.current || new Audio();
+    const unlockAudio = unlockedAudioRef.current || new Audio();
     let audioUnlocked = false;
     try {
       // This must happen before any permission prompt or await. Safari only
