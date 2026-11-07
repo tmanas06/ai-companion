@@ -341,10 +341,7 @@ function LiveCompanionStage() {
   const style = personality?.style || 'anime';
 
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between overflow-hidden bg-[#0a0a0a] text-slate-100 select-none">
-      {/* Plus/Cross Grid & Vignette Background Layer */}
-      <div className="absolute inset-0 pointer-events-none bg-cross-grid-vignette opacity-80" aria-hidden="true" />
-
+    <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between overflow-hidden bg-[#0a0a0a] bg-portfolio-pattern text-slate-100 select-none">
       {!voiceReady && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#0a0a0a]/90 backdrop-blur-sm p-6">
           <div className="w-full max-w-md rounded-3xl border border-neutral-800 bg-[#121212] p-7 text-center shadow-2xl">

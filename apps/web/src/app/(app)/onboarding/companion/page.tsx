@@ -294,7 +294,7 @@ function OnboardingCompanionContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] bg-cross-grid-vignette text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] bg-portfolio-pattern text-slate-100 flex flex-col">
       {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
