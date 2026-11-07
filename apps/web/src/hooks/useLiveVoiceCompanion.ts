@@ -120,6 +120,7 @@ export function useLiveVoiceCompanion({
   const [currentEmotion, setCurrentEmotion] = useState<AvatarEmotion>('neutral');
   const [emotionIntensity, setEmotionIntensity] = useState<number>(0.5);
   const [sadtalkerVideoUrl, setSadtalkerVideoUrl] = useState<string | null>(null);
+  const lastAudioLevelUiUpdateRef = useRef(0);
 
   const activeSadTalkerJobIdRef = useRef<string | null>(null);
   const sadTalkerPollTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -271,12 +272,14 @@ export function useLiveVoiceCompanion({
   const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const micSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSessionIdRef = useRef<number>(0);
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
+  const unlockedAudioRef = useRef<HTMLAudioElement | null>(null);
   const playbackSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const playbackAnalyserNodeRef = useRef<AnalyserNode | null>(null);
   const playbackAnimFrameRef = useRef<number | null>(null);
@@ -296,6 +299,7 @@ export function useLiveVoiceCompanion({
   const speechRecognitionRef = useRef<BrowserSpeechRecognitionLike | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInterruptedRef = useRef<boolean>(false);
+  const captureFailedRef = useRef<boolean>(false);
 
   // Stop and clean up microphone stream and analysis
   const cleanupMicrophone = useCallback(() => {
@@ -303,8 +307,30 @@ export function useLiveVoiceCompanion({
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    if (micSourceNodeRef.current) {
+      try {
+        micSourceNodeRef.current.disconnect();
+      } catch {
+        // Ignored
+      }
+      micSourceNodeRef.current = null;
+    }
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch {
+        // Ignored
+      }
+      analyserRef.current = null;
+    }
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // Ignored
+        }
+      });
       mediaStreamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -362,72 +388,29 @@ export function useLiveVoiceCompanion({
     setAudioLevel(0);
   }, []);
 
-  // Start real-time speech amplitude monitoring connected to Web Audio API
+  // Keep playback on the native audio element. Routing it through
+  // createMediaElementSource can suppress output in Safari even when play()
+  // resolves successfully, so use a lightweight visual fallback instead.
   const startPlaybackMonitoring = useCallback((audioEl: HTMLAudioElement, sessId: number) => {
     stopPlaybackMonitoring();
     if (typeof window === 'undefined') return;
 
-    try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        if (!playbackAudioContextRef.current || playbackAudioContextRef.current.state === 'closed') {
-          playbackAudioContextRef.current = new AudioCtx();
-        }
-        const ctx = playbackAudioContextRef.current;
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
-        }
-
-        const source = ctx.createMediaElementSource(audioEl);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.3;
-        source.connect(analyser);
-        analyser.connect(ctx.destination);
-
-        playbackSourceNodeRef.current = source;
-        playbackAnalyserNodeRef.current = analyser;
-
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        const loop = () => {
-          if (sessId !== activeSessionIdRef.current || audioEl.paused || audioEl.ended) {
-            stopPlaybackMonitoring();
-            return;
-          }
-
-          analyser.getByteFrequencyData(dataArray);
-          let sum = 0;
-          const bins = Math.min(bufferLength, 28);
-          for (let i = 2; i < bins; i++) {
-            sum += dataArray[i] ?? 0;
-          }
-          const avg = sum / (bins - 2);
-          const level = Math.min(1.0, Math.max(0.0, avg / 115));
-          setAudioLevel(level);
-
-          playbackAnimFrameRef.current = requestAnimationFrame(loop);
-        };
-
-        playbackAnimFrameRef.current = requestAnimationFrame(loop);
+    const startTime = Date.now();
+    const fallbackLoop = () => {
+      if (sessId !== activeSessionIdRef.current || audioEl.paused || audioEl.ended) {
+        stopPlaybackMonitoring();
         return;
       }
-    } catch {
-      // Fallback: speech syllable modulation based on active playback time
-      const startTime = Date.now();
-      const fallbackLoop = () => {
-        if (sessId !== activeSessionIdRef.current || audioEl.paused || audioEl.ended) {
-          stopPlaybackMonitoring();
-          return;
-        }
-        const t = (Date.now() - startTime) / 1000;
-        const rhythm = Math.max(0, Math.sin(t * 11) * 0.45 + Math.sin(t * 19) * 0.25 + 0.3);
+      const t = (Date.now() - startTime) / 1000;
+      const rhythm = Math.max(0, Math.sin(t * 11) * 0.45 + Math.sin(t * 19) * 0.25 + 0.3);
+      const uiNow = performance.now();
+      if (uiNow - lastAudioLevelUiUpdateRef.current >= 66) {
+        lastAudioLevelUiUpdateRef.current = uiNow;
         setAudioLevel(rhythm);
-        playbackAnimFrameRef.current = requestAnimationFrame(fallbackLoop);
-      };
+      }
       playbackAnimFrameRef.current = requestAnimationFrame(fallbackLoop);
-    }
+    };
+    playbackAnimFrameRef.current = requestAnimationFrame(fallbackLoop);
   }, [stopPlaybackMonitoring]);
 
   // Monitor audio amplitude for animated visualizer/mouth & voice activity detection (VAD)
@@ -458,7 +441,11 @@ export function useLiveVoiceCompanion({
       // 3. Composite speech energy
       const energy = Math.max(rms * 2.8, voiceBandAvg * 1.4);
       const normalizedForVisualizer = Math.min(1.0, energy * 2.0);
-      setAudioLevel(normalizedForVisualizer);
+      const uiNow = performance.now();
+      if (uiNow - lastAudioLevelUiUpdateRef.current >= 66) {
+        lastAudioLevelUiUpdateRef.current = uiNow;
+        setAudioLevel(normalizedForVisualizer);
+      }
 
       // Free-flow hands-free Voice Activity Detection (VAD)
       if (handsFreeRef.current && stateRef.current === 'listening') {
@@ -588,12 +575,23 @@ export function useLiveVoiceCompanion({
       }
 
       let audio: HTMLAudioElement | null = null;
+      let audioObjectUrl: string | null = null;
       try {
-        // Convert base64 to audio object
+        // Decode to a Blob URL. This is more reliable than a large data URL in
+        // Safari and avoids keeping the entire base64 string in the media stack.
         const mime = audioFormat && audioFormat.includes('/') ? audioFormat : `audio/${audioFormat || 'mpeg'}`;
-        const audioSrc = `data:${mime};base64,${audioBase64}`;
-        audio = new Audio(audioSrc);
+        const binary = atob(audioBase64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        audioObjectUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        audio = unlockedAudioRef.current || new Audio();
+        audio.pause();
+        audio.src = audioObjectUrl;
+        audio.load();
         activeAudioRef.current = audio;
+        audio.setAttribute('playsinline', 'true');
+        audio.autoplay = false;
+        audio.muted = false;
+        audio.volume = 1;
 
         // Try setting playback rate
         audio.preservesPitch = true;
@@ -627,6 +625,7 @@ export function useLiveVoiceCompanion({
             }
           }
           activeAudioRef.current = null;
+          if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
         };
 
         audio.onerror = () => {
@@ -636,6 +635,7 @@ export function useLiveVoiceCompanion({
             setState('idle');
             setErrorMessage('Unable to play companion audio');
           }
+          if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
         };
 
         await audio.play();
@@ -695,8 +695,15 @@ export function useLiveVoiceCompanion({
         if (textQuery) {
           formData.append('text', textQuery);
         }
-        if (audioBlob && audioBlob.size > 0) {
-          const filename = audioBlob.type.includes('webm') ? 'mic_input.webm' : 'mic_input.wav';
+        if (audioBlob && audioBlob.size >= 1500) {
+          let filename = 'mic_input.wav';
+          if (audioBlob.type.includes('webm')) {
+            filename = 'mic_input.webm';
+          } else if (audioBlob.type.includes('mp4')) {
+            filename = 'mic_input.mp4';
+          } else if (audioBlob.type.includes('ogg')) {
+            filename = 'mic_input.ogg';
+          }
           formData.append('audio_file', audioBlob, filename);
         }
         if (voiceSettings.voiceName) {
@@ -763,12 +770,15 @@ export function useLiveVoiceCompanion({
         }
 
         const msg = errorObj?.message || 'Failed to communicate with companion';
+        const lowerMsg = msg.toLowerCase();
         if (
-          msg.includes('No speech detected') ||
-          msg.toLowerCase().includes('no speech') ||
-          msg.includes('Audio data is empty')
+          lowerMsg.includes('no speech') ||
+          lowerMsg.includes('audio data is empty') ||
+          lowerMsg.includes('transcription failed') ||
+          lowerMsg.includes('invalid data') ||
+          lowerMsg.includes('capture failure')
         ) {
-          // Ambient silence or quick tap without speaking: gracefully return to idle/listen without error banner
+          // Ambient silence, truncated packet, or quick tap without speaking: gracefully return to idle/listen without error banner
           setState('idle');
           if (handsFreeRef.current) {
             if (autoListenTimerRef.current) clearTimeout(autoListenTimerRef.current);
@@ -811,6 +821,7 @@ export function useLiveVoiceCompanion({
     }
 
     isInterruptedRef.current = false;
+    captureFailedRef.current = false;
     setErrorMessage(null);
     setState('requesting_microphone');
     setTranscript('');
@@ -838,12 +849,25 @@ export function useLiveVoiceCompanion({
 
       mediaStreamRef.current = stream;
 
+      // Handle stream / track ending (device disconnected or capture failure)
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          console.warn('[LiveVoice] Audio track ended unexpectedly');
+          if (stateRef.current === 'listening' || stateRef.current === 'requesting_microphone') {
+            captureFailedRef.current = true;
+            cleanupMicrophone();
+            setState('idle');
+          }
+        };
+      });
+
       // Setup audio analysis for visualizer
       try {
         const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const ctx = new AudioCtx();
         audioContextRef.current = ctx;
         const source = ctx.createMediaStreamSource(stream);
+        micSourceNodeRef.current = source;
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         analyser.smoothingTimeConstant = 0.25;
@@ -916,10 +940,20 @@ export function useLiveVoiceCompanion({
         }
       }
 
-      // Initialize MediaRecorder
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported('audio/webm')) {
-        mimeType = '';
+      // Initialize MediaRecorder with browser-supported MIME type
+      let mimeType = '';
+      const candidateMimes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus',
+        'audio/wav',
+      ];
+      for (const t of candidateMimes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
+          mimeType = t;
+          break;
+        }
       }
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
@@ -930,16 +964,32 @@ export function useLiveVoiceCompanion({
         }
       };
 
+      recorder.onerror = (e) => {
+        console.warn('[LiveVoice] MediaRecorder error:', e);
+        cleanupMicrophone();
+        setState('idle');
+      };
+
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/wav' });
-        const recognizedText = liveTranscriptRef.current || undefined;
+        const chunks = [...audioChunksRef.current];
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        const recognizedText = liveTranscriptRef.current?.trim() || undefined;
         cleanupMicrophone();
 
-        if (isInterruptedRef.current || stateRef.current === 'interrupted') {
+        if (
+          captureFailedRef.current ||
+          isInterruptedRef.current ||
+          stateRef.current === 'interrupted'
+        ) {
           return;
         }
 
-        if (blob.size === 0 && !recognizedText) {
+        // Must have detected user speech or recognized text, and blob must contain meaningful audio frames.
+        // Container headers alone are ~200-500 bytes. At least 2KB is needed for usable audio frames.
+        const hasValidSpeech = (blob.size >= 2000 && hasUserSpokenRef.current) || Boolean(recognizedText);
+
+        if (!hasValidSpeech) {
+          console.log('[LiveVoice] No speech detected or audio chunk too small, ignoring turn');
           setState('idle');
           return;
         }
@@ -1143,10 +1193,62 @@ export function useLiveVoiceCompanion({
   // Resume/unblock audio when browser autoplay policy requires user interaction
   const resumeAudio = useCallback(() => {
     setAutoplayBlocked(false);
+    if (playbackAudioContextRef.current?.state === 'suspended') {
+      playbackAudioContextRef.current.resume().catch(() => {});
+    }
     if (pendingAudioPlaybackRef.current) {
       const play = pendingAudioPlaybackRef.current;
       pendingAudioPlaybackRef.current = null;
       play();
+    }
+  }, []);
+
+  // Prime microphone permission and browser audio playback from one user gesture.
+  const enableVoice = useCallback(async (): Promise<boolean> => {
+    let unlockAudio = unlockedAudioRef.current || new Audio();
+    let audioUnlocked = false;
+    try {
+      // This must happen before any permission prompt or await. Safari only
+      // allows future media playback when the same media element was started
+      // during the user's click/tap gesture.
+      unlockAudio.setAttribute('playsinline', 'true');
+      unlockAudio.muted = true;
+      unlockAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      unlockAudio.load();
+      await unlockAudio.play();
+      unlockAudio.pause();
+      unlockAudio.currentTime = 0;
+      audioUnlocked = true;
+
+    } catch (error) {
+      // Some browsers reject a muted silent data URL even though normal audio
+      // playback is available. Do not prevent microphone setup or chat startup.
+      console.warn('[LiveVoice] Audio unlock was not available yet:', error);
+    }
+
+    try {
+      const AudioCtx = window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        if (!playbackAudioContextRef.current || playbackAudioContextRef.current.state === 'closed') {
+          playbackAudioContextRef.current = new AudioCtx();
+        }
+        await playbackAudioContextRef.current.resume().catch(() => {});
+      }
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone capture is not supported by this browser');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      unlockedAudioRef.current = audioUnlocked ? unlockAudio : null;
+      setAutoplayBlocked(false);
+      return true;
+    } catch (error) {
+      console.warn('[LiveVoice] Could not enable microphone:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to enable microphone');
+      return false;
     }
   }, []);
 
@@ -1229,6 +1331,7 @@ export function useLiveVoiceCompanion({
     availableVoices,
     autoplayBlocked,
     resumeAudio,
+    enableVoice,
     triggerGreeting,
     replaySpeech,
     startListening,

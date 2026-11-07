@@ -131,6 +131,10 @@ class FasterWhisperSTTProvider(BaseSpeechToTextProvider):
             if "Audio transcription failed" in str(e):
                 raise
 
+        # Audio files under ~800 bytes only contain container headers (WebM/WAV/MP4) without audio packets
+        if len(audio_bytes) < 800:
+            return ""
+
         model = self._ensure_model()
 
         # Determine appropriate file extension based on magic bytes or filename
@@ -141,6 +145,8 @@ class FasterWhisperSTTProvider(BaseSpeechToTextProvider):
             suffix = ".ogg"
         elif audio_bytes.startswith(b"RIFF"):
             suffix = ".wav"
+        elif len(audio_bytes) > 8 and audio_bytes[4:8] == b"ftyp":
+            suffix = ".mp4"
         elif filename and os.path.splitext(filename)[1]:
             suffix = os.path.splitext(filename)[1]
 
@@ -153,6 +159,10 @@ class FasterWhisperSTTProvider(BaseSpeechToTextProvider):
             transcribed_text = " ".join([seg.text.strip() for seg in segments if seg.text.strip()]).strip()
             return transcribed_text
         except Exception as e:
+            err_msg = str(e)
+            # Handle empty/corrupted container frames gracefully (e.g., PyAV InvalidDataError 1094995529)
+            if "1094995529" in err_msg or "Invalid data found" in err_msg or "End of file" in err_msg:
+                return ""
             raise ValueError(f"Transcription failed: {e}") from e
         finally:
             if os.path.exists(tmp_path):

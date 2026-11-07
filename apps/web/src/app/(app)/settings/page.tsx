@@ -6,10 +6,25 @@ import { useAuth } from '@/context/AuthContext';
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
 
   useEffect(() => {
     setIsLoading(false);
+    try {
+      setAudioEnabled(localStorage.getItem('ai_companion_audio_enabled') !== 'false');
+    } catch {
+      // Use the default when storage is unavailable.
+    }
   }, []);
+
+  function handleAudioPreferenceChange(enabled: boolean) {
+    setAudioEnabled(enabled);
+    try {
+      localStorage.setItem('ai_companion_audio_enabled', String(enabled));
+    } catch {
+      // Keep the preference active for this page if storage is unavailable.
+    }
+  }
 
   async function handleLogout() {
     await logout();
@@ -56,6 +71,22 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Voice & Audio</h3>
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span>
+                <span className="block text-sm font-medium text-slate-900 dark:text-white">Enable companion audio automatically</span>
+                <span className="block mt-1 text-sm text-slate-500 dark:text-slate-400">You can change this preference any time.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={audioEnabled}
+                onChange={(event) => handleAudioPreferenceChange(event.target.checked)}
+                className="h-5 w-5 accent-violet-600"
+              />
+            </label>
           </div>
 
           <div className="border-t border-slate-200 dark:border-slate-700 pt-6">

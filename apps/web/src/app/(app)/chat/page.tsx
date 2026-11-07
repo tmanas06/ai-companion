@@ -45,6 +45,8 @@ function LiveCompanionStage() {
   const [showTextFallback, setShowTextFallback] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [showCompanionSwitcher, setShowCompanionSwitcher] = useState(false);
+  const [voiceReady, setVoiceReady] = useState(false);
+  const [audioPreferenceEnabled, setAudioPreferenceEnabled] = useState(true);
   const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -83,6 +85,7 @@ function LiveCompanionStage() {
     submitText,
     autoplayBlocked,
     resumeAudio,
+    enableVoice,
     handsFree,
     toggleHandsFree,
     isUserSpeaking,
@@ -94,8 +97,25 @@ function LiveCompanionStage() {
     conversationId: activeConversationId,
     companionGender,
     companionName: selectedCompanion?.name,
+    autoGreet: voiceReady && audioPreferenceEnabled,
     onConversationCreated: handleConversationCreated,
   });
+
+  useEffect(() => {
+    try {
+      setAudioPreferenceEnabled(localStorage.getItem('ai_companion_audio_enabled') !== 'false');
+    } catch {
+      // Use the default when storage is unavailable.
+    }
+  }, []);
+
+  const handleStartVoiceChat = useCallback(async () => {
+    if (!audioPreferenceEnabled) {
+      setVoiceReady(true);
+      return;
+    }
+    if (await enableVoice()) setVoiceReady(true);
+  }, [audioPreferenceEnabled, enableVoice]);
 
   // 1. Auth check
   useEffect(() => {
@@ -322,6 +342,24 @@ function LiveCompanionStage() {
 
   return (
     <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between overflow-hidden bg-slate-950 text-slate-100 select-none">
+      {!voiceReady && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900 p-7 text-center shadow-2xl">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-600/20 text-3xl">🎙️</div>
+            <h1 className="text-xl font-semibold text-white">Start your voice chat</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Allow microphone and audio access once. Your companion will speak automatically after this.
+            </p>
+            <button
+              onClick={handleStartVoiceChat}
+              className="mt-6 w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500"
+            >
+              Enable microphone and sound
+            </button>
+            <p className="mt-3 text-xs text-slate-500">You can disable automatic audio later in Settings.</p>
+          </div>
+        </div>
+      )}
       {/* Dynamic Ambient Background Glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div
