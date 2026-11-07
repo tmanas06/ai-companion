@@ -25,6 +25,7 @@ import {
   Animated,
 } from 'react-native';
 import { Audio } from 'expo-av';
+import * as Speech from 'expo-speech';
 import {
   Avatar3DConfig,
   DEFAULT_AVATAR_3D_CONFIG,
@@ -37,6 +38,17 @@ import {
 } from '../../src/services/avatar-service';
 import { fetchWithAuth, getApiBaseUrl } from '../../src/services/api-client';
 import { getAccessToken } from '../../src/services/auth-storage';
+import { useAiStatus } from '../../src/services/ai-status';
+import { AiStatusBanner } from '../../src/components/AiStatusBanner';
+import { routeMessage } from '../../src/engine/ai-router';
+import { pickFiller } from '../../src/engine/filler-replies';
+import {
+  isSttAvailable,
+  startRecording,
+  RecordingSession,
+} from '../../src/engine/local-stt';
+import { getSttModelId } from '../../src/services/preferences';
+import { isModelDownloaded } from '../../src/engine/model-manager';
 
 type AvatarDisplayMode = '3d' | 'photorealistic-2d';
 
@@ -45,7 +57,11 @@ interface ChatMessage {
   sender: 'user' | 'companion';
   text: string;
   timestamp: Date;
+  isFiller?: boolean;
 }
+
+const FILLER_ID = 'filler-active';
+const FILLER_DELAY_MS = 400;
 
 interface WordAlignment {
   words: string[];
@@ -428,19 +444,13 @@ export default function ChatScreen() {
   const [showTextInput, setShowTextInput] = useState<boolean>(false);
   const [companionName, setCompanionName] = useState<string>('Aria');
   const [currentAlignment, setCurrentAlignment] = useState<WordAlignment | null>(null);
-  const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>(() => {
-    try {
-      const saved = localStorage.getItem('ai_companion_display_mode');
-      if (saved && ['3d', 'photorealistic-2d'].includes(saved)) {
-        return saved as AvatarDisplayMode;
-      }
-    } catch (e) {
-      // Ignored
-    }
-    return 'photorealistic-2d';
-  });
+  const [displayMode, setDisplayMode] = useState<AvatarDisplayMode>('photorealistic-2d');
   const [avatarAssets, setAvatarAssets] = useState<AvatarAssets | null>(null);
 
+  const aiStatus = useAiStatus();
+  const recordingRef = useRef<RecordingSession | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const fillerTimerRef = useRef<NodeJS.Timeout | null>(null);
   const speechTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -498,15 +508,6 @@ export default function ChatScreen() {
     setAvatarAssets(assets);
   }, [companionName]);
 
-  // Persist display mode selection
-  useEffect(() => {
-    try {
-      localStorage.setItem('ai_companion_display_mode', displayMode);
-    } catch (e) {
-      // Ignored
-    }
-  }, [displayMode]);
-
   // Clean up all timers and audio on unmount
   useEffect(() => {
     return () => {
@@ -519,6 +520,15 @@ export default function ChatScreen() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      if (recordingRef.current) {
+        recordingRef.current.cancel().catch(() => {});
+        recordingRef.current = null;
+      }
+      if (fillerTimerRef.current) {
+        clearTimeout(fillerTimerRef.current);
+        fillerTimerRef.current = null;
+      }
+      Speech.stop();
     };
   }, []);
 
@@ -703,6 +713,11 @@ export default function ChatScreen() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (fillerTimerRef.current) {
+      clearTimeout(fillerTimerRef.current);
+      fillerTimerRef.current = null;
+    }
+    Speech.stop();
     sessionIdRef.current += 1; // Invalidate current session
     isPlayingRef.current = false;
     audioChunksRef.current = [];
@@ -730,57 +745,161 @@ export default function ChatScreen() {
       setTextInput('');
       setIsSending(true);
 
-      try {
-        // Post message to backend
-        const res = await fetchWithAuth<any>('/api/v1/conversations/chat', {
-          method: 'POST',
-          body: JSON.stringify({
-            message: content,
-            stream: false,
-          }),
-        });
+      // Schedule a filler bubble if the reply hasn't arrived within FILLER_DELAY_MS.
+      // Fast canned / local replies (< 400ms) never show one.
+      if (fillerTimerRef.current) clearTimeout(fillerTimerRef.current);
+      fillerTimerRef.current = setTimeout(() => {
+        fillerTimerRef.current = null;
+        const filler = pickFiller(content);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: FILLER_ID,
+            sender: 'companion',
+            text: filler,
+            timestamp: new Date(),
+            isFiller: true,
+          },
+        ]);
+        // Speak the filler out loud via system TTS — offline, instant, no server call.
+        // simulateCompanionSpeech animates the mouth for roughly the duration.
+        Speech.stop();
+        Speech.speak(filler, { pitch: 1.05, rate: 1.0 });
+        simulateCompanionSpeech(filler);
+      }, FILLER_DELAY_MS);
 
-        let replyText = "I'm listening and right here with you.";
-        if (res.ok && res.data) {
-          replyText = res.data.content || replyText;
-        }
+      const routed = await routeMessage(content);
+      setIsSending(false);
+      if (fillerTimerRef.current) {
+        clearTimeout(fillerTimerRef.current);
+        fillerTimerRef.current = null;
+      }
+      // Stop any filler currently being spoken so it doesn't overlap the real reply.
+      Speech.stop();
+      // Drop the filler bubble before showing the real reply or error.
+      setMessages((prev) => prev.filter((m) => m.id !== FILLER_ID));
 
-        const companionMsg: ChatMessage = {
+      if (!routed.ok || !routed.content) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err-${Date.now()}`,
+            sender: 'companion',
+            text: `[AI unavailable · ${routed.source}] ${routed.error ?? 'Unknown error'}`,
+            timestamp: new Date(),
+          },
+        ]);
+        if (routed.source === 'lan') void aiStatus.recheck();
+        return;
+      }
+
+      const replyText = routed.content;
+      setMessages((prev) => [
+        ...prev,
+        {
           id: `reply-${Date.now()}`,
           sender: 'companion',
           text: replyText,
           timestamp: new Date(),
-        };
+        },
+      ]);
 
-        setMessages((prev) => [...prev, companionMsg]);
-        setIsSending(false);
-        
-        // Use streaming TTS with timestamps for real audio and viseme data
+      // TTS only works via the LAN backend (voice endpoint lives on FastAPI).
+      // Canned + on-device replies get displayed text + simulated mouth motion.
+      if (routed.source === 'lan') {
         await playCompanionSpeechStreaming(replyText, 'en-US-JennyNeural');
-      } catch (err) {
-        setIsSending(false);
-        const fallbackMsg: ChatMessage = {
-          id: `reply-${Date.now()}`,
-          sender: 'companion',
-          text: 'I heard you. How can I assist you further?',
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, fallbackMsg]);
-        simulateCompanionSpeech(fallbackMsg.text);
+      } else {
+        simulateCompanionSpeech(replyText);
       }
     },
-    [inputText, isSending, handleInterrupt, playCompanionSpeechStreaming, simulateCompanionSpeech]
+    [inputText, isSending, handleInterrupt, playCompanionSpeechStreaming, simulateCompanionSpeech, aiStatus]
   );
 
-  // 5. Push-To-Talk Toggle
-  const handleToggleListening = useCallback(() => {
+  // 5. Push-To-Talk: real recording → whisper.rn → routeMessage
+  const handleToggleListening = useCallback(async () => {
     if (isListening) {
+      // Stop recording and transcribe
       setIsListening(false);
-      // Simulate processed voice transcription input
-      handleSendMessage('Hello Aria, tell me something interesting today!');
-    } else {
-      handleInterrupt();
+      const session = recordingRef.current;
+      recordingRef.current = null;
+      if (!session) return;
+      setIsTranscribing(true);
+      try {
+        const text = await session.stopAndTranscribe();
+        if (text.trim()) {
+          await handleSendMessage(text.trim());
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `err-${Date.now()}`,
+              sender: 'companion',
+              text: '[No speech detected]',
+              timestamp: new Date(),
+            },
+          ]);
+        }
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `err-${Date.now()}`,
+            sender: 'companion',
+            text: `[Voice input failed] ${
+              err instanceof Error ? err.message : 'Unknown error'
+            }`,
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setIsTranscribing(false);
+      }
+      return;
+    }
+
+    // Starting: verify STT is configured
+    if (!isSttAvailable()) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'companion',
+          text: '[Voice input unavailable] whisper.rn native module is not installed in this build.',
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+    const sttId = await getSttModelId();
+    if (!sttId || !(await isModelDownloaded(sttId))) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'companion',
+          text: '[Voice input unavailable] Download a Whisper model in Settings → On-device AI.',
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+
+    handleInterrupt();
+    try {
+      recordingRef.current = await startRecording();
       setIsListening(true);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          sender: 'companion',
+          text: `[Microphone] ${
+            err instanceof Error ? err.message : 'Could not start recording'
+          }`,
+          timestamp: new Date(),
+        },
+      ]);
     }
   }, [isListening, handleInterrupt, handleSendMessage]);
 
@@ -792,6 +911,8 @@ export default function ChatScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <AiStatusBanner status={aiStatus} onRetry={aiStatus.recheck} />
+
         {/* Header Bar */}
         <View style={styles.header}>
           <View>
@@ -865,7 +986,13 @@ export default function ChatScreen() {
               <Text style={styles.subtitleSender}>
                 {lastMessage.sender === 'user' ? 'You' : companionName}
               </Text>
-              <Text style={styles.subtitleText} numberOfLines={3}>
+              <Text
+                style={[
+                  styles.subtitleText,
+                  lastMessage.isFiller && styles.subtitleFiller,
+                ]}
+                numberOfLines={3}
+              >
                 {lastMessage.text}
               </Text>
             </View>
@@ -920,7 +1047,13 @@ export default function ChatScreen() {
               ]}
             >
               <Text style={styles.micIconText}>
-                {isListening ? 'Stop' : isSpeaking ? 'Listen' : 'Talk'}
+                {isTranscribing
+                  ? '…'
+                  : isListening
+                    ? 'Stop'
+                    : isSpeaking
+                      ? 'Listen'
+                      : 'Talk'}
               </Text>
             </View>
           </TouchableOpacity>
@@ -1054,6 +1187,10 @@ const styles = StyleSheet.create({
     color: '#f1f5f9',
     fontSize: 14,
     lineHeight: 20,
+  },
+  subtitleFiller: {
+    color: '#94a3b8',
+    fontStyle: 'italic',
   },
   interruptButton: {
     position: 'absolute',

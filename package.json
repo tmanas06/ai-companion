@@ -23,16 +23,22 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f",
-    "db:reset": "docker compose down -v && docker compose up -d"
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "postinstall": "pnpm --filter=@ai-companion/shared build"
   },
   "devDependencies": {
-    "turbo": "^2.0.0",
+    "@types/node": "^20.14.0",
     "prettier": "^3.3.0",
-    "@types/node": "^20.14.0"
+    "turbo": "^2.0.0"
   },
   "packageManager": "pnpm@9.4.0",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "expo-modules-core@1.12.26": "patches/expo-modules-core@1.12.26.patch"
+    }
   }
 }

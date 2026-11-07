@@ -2,7 +2,7 @@ import { ConfigContext, ExpoConfig } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'AI Companion',
+  name: 'AETHRA',
   slug: 'ai-companion',
   version: '1.0.0',
   orientation: 'portrait',
@@ -56,8 +56,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       origin: false,
     },
     eas: {
-      projectId: '',
+      projectId: 'a91d3fa0-1719-40eb-94c3-62b6fd0ac4ab',
     },
   },
-  owner: '',
+  owner: 'tmanas',
 });

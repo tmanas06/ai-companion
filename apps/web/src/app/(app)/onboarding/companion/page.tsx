@@ -302,8 +302,8 @@ function OnboardingCompanionContent() {
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <span className="text-white text-lg font-bold">✨</span>
             </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
-              AI Companion
+            <span className="text-xl font-bold tracking-wider bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
+              AETHRA
             </span>
           </Link>
           <span className="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-medium ml-2">

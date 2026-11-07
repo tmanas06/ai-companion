@@ -1,0 +1,37 @@
+# Everything that shouldn't be shipped to the EAS Build worker.
+# This drops the project upload from ~257 MB to ~50 MB.
+
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Prebuild output — EAS regenerates native dirs if config plugins require it,
+# but keep android/ because this project has customizations (gradle, strings.xml).
+android/.gradle/
+android/build/
+android/app/build/
+android/.cxx/
+
+# iOS is not being built in this profile
+ios/
+
+# Avatar / 3D asset bundles — big and only needed at runtime; the APK pulls
+# from the backend or the model directory anyway.
+assets/avatars/
+public/models/
+*.glb
+*.gltf
+
+# OS junk
+.DS_Store
+*.log
+
+# Local env (EAS pulls env from the EAS project secrets instead)
+.env
+.env.local
+
+# Model files that should never be committed/uploaded
+*.gguf
+*.bin
+aethra-models/

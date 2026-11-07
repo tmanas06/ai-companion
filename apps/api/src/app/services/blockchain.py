@@ -10,14 +10,36 @@ from app.core.exceptions import ProviderConfigurationError
 
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
+_BLOCKCHAIN_TERMS = (
+    r"wallet",
+    r"balance",
+    r"wallet\s+address",
+    r"qr\s+code",
+    r"crypto",
+    r"blockchain",
+    r"on-?chain",
+    r"transaction",
+    r"tx\s+hash",
+    r"0g",
+    r"ethereum",
+    r"evm",
+    r"gas\s+fee",
+    r"airdrop",
+    r"stake|staking",
+    r"nft",
+)
+_BLOCKCHAIN_RE = re.compile(
+    r"\b(?:" + "|".join(_BLOCKCHAIN_TERMS) + r")\b",
+    re.IGNORECASE,
+)
+
 
 def is_blockchain_request(message: str) -> bool:
-    terms = (
-        "wallet", "balance", "address", "qr", "crypto", "token", "blockchain",
-        "on-chain", "transaction", "tx hash", "0g", "ethereum", "send", "receive",
-    )
-    text = message.lower()
-    return any(term in text for term in terms)
+    if not message:
+        return False
+    if ADDRESS_RE.fullmatch(message.strip()):
+        return True
+    return bool(_BLOCKCHAIN_RE.search(message))
 
 
 async def get_native_balance(address: str) -> dict:

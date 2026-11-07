@@ -57,7 +57,7 @@ export default function LoginPage() {
             </div>
           </Link>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Welcome back</h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">Sign in to continue to AI Companion</p>
+          <p className="mt-2 text-slate-600 dark:text-slate-400">Sign in to continue to AETHRA</p>
         </div>
 
         <div className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-neutral-800 p-6 shadow-sm">

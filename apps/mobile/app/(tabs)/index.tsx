@@ -6,7 +6,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>AI Companion</Text>
+          <Text style={styles.title}>AETHRA</Text>
           <Text style={styles.subtitle}>
             Your personal AI companion with persistent memory
           </Text>

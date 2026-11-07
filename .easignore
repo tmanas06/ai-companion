@@ -1,0 +1,39 @@
+# Keep the EAS upload small in this pnpm monorepo. EAS resolves the project
+# root automatically but respects this file at the monorepo root too.
+
+node_modules/
+**/node_modules/
+.expo/
+**/.expo/
+dist/
+**/dist/
+!packages/shared/dist/
+!packages/shared/dist/**
+web-build/
+**/web-build/
+
+# iOS not being built here
+apps/mobile/ios/
+
+# Gradle caches that get regenerated
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/.cxx/
+
+# Large asset bundles only needed at runtime
+apps/web/public/models/
+apps/web/public/avatars/
+
+# Other app dirs that aren't part of the mobile build
+apps/web/
+apps/api/
+
+# Model files — never commit or ship these
+*.gguf
+*.bin
+aethra-models/
+
+# OS junk
+.DS_Store
+*.log

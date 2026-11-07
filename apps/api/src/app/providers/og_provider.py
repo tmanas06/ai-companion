@@ -23,7 +23,10 @@ class OGProvider(BaseProvider):
         return ProviderType.ZERO_G
 
     def get_available_models(self) -> list[str]:
-        return [settings.OG_DEFAULT_MODEL]
+        models = [settings.OG_DEFAULT_MODEL]
+        if settings.OG_VOICE_MODEL and settings.OG_VOICE_MODEL not in models:
+            models.append(settings.OG_VOICE_MODEL)
+        return models
 
     def get_default_model(self) -> str:
         return settings.OG_DEFAULT_MODEL

@@ -1,5 +1,5 @@
 /**
- * Typed API client for AI Companion backend.
+ * Typed API client for AETHRA backend.
  * Handles authentication, request/response transformation, and error handling.
  */
 

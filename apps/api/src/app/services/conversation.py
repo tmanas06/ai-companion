@@ -447,9 +447,10 @@ class ConversationService:
         blockchain_request = is_blockchain_request(request.message)
         requested_provider = "0g" if blockchain_request else companion_llm_config.get("provider")
         provider = get_provider(provider_type=requested_provider)
+        is_voice = getattr(request, "voice_mode", False)
         from app.core.config import settings
         model = companion_llm_config.get("model") or (
-            settings.OG_VOICE_MODEL if blockchain_request and request.voice_mode else provider.get_default_model()
+            settings.OG_VOICE_MODEL if blockchain_request and is_voice else provider.get_default_model()
         )
 
         # Build context for AI (prior messages + current user message)

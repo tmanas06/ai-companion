@@ -1,0 +1,34 @@
+diff --git a/android/ExpoModulesCorePlugin.gradle b/android/ExpoModulesCorePlugin.gradle
+index bcf9b003afbb2eac557c2928509d0b5672f70e02..b356f07e9661839d57665da9811eaa9999a88d1a 100644
+--- a/android/ExpoModulesCorePlugin.gradle
++++ b/android/ExpoModulesCorePlugin.gradle
+@@ -79,15 +79,21 @@ ext.useExpoPublishing = {
+   }
+ 
+   project.afterEvaluate {
+-    publishing {
+-      publications {
+-        release(MavenPublication) {
+-          from components.release
++    // Guard against AGP 8.4+ not registering the `release` component in time.
++    // Known issue: https://github.com/expo/expo/issues/29472
++    // The publication is only needed for maven-publishing of the module itself,
++    // not for building the host app, so skipping when unavailable is safe.
++    if (components.findByName("release") != null) {
++      publishing {
++        publications {
++          release(MavenPublication) {
++            from components.release
++          }
+         }
+-      }
+-      repositories {
+-        maven {
+-          url = mavenLocal().url
++        repositories {
++          maven {
++            url = mavenLocal().url
++          }
+         }
+       }
+     }

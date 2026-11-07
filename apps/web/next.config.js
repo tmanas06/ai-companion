@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -17,6 +19,7 @@ const nextConfig = {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...config.resolve.alias,
+      zustand: path.resolve(__dirname, '../../node_modules/zustand'),
       '@solana-program/memo': false,
       '@solana-program/system': false,
       '@solana-program/token': false,

@@ -18,8 +18,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AI Companion',
-  description: 'Your personal AI companion with persistent memory',
+  title: 'AETHRA',
+  description: 'AETHRA — your personal AI companion with persistent memory',
 };
 
 export const viewport: Viewport = {

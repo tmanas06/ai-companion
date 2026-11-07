@@ -51,10 +51,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200 dark:border-neutral-800">
             <Link href="/chat" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center">
-                <SparklesIcon className="w-5 h-5 text-white" />
-              </div>
-              <span className="font-semibold text-lg text-slate-900 dark:text-white">AI Companion</span>
+              <AethraMark className="w-8 h-8" />
+              <span className="font-semibold text-lg tracking-wide text-slate-900 dark:text-white">AETHRA</span>
             </Link>
             <button
               onClick={() => setSidebarOpen(false)}
@@ -126,7 +124,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <MenuIcon className="w-6 h-6" />
             </button>
-            <span className="font-semibold text-lg text-slate-900 dark:text-white">AI Companion</span>
+            <span className="font-semibold text-lg tracking-wide text-slate-900 dark:text-white">AETHRA</span>
             <div className="w-10" />
           </div>
         </header>
@@ -140,6 +138,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 // Utility icons
+function AethraMark({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="aethra-sidebar-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#7c3aed" />
+          <stop offset="55%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#06b6d4" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="8" fill="url(#aethra-sidebar-grad)" />
+      <path d="M16 6.5 L23.2 24 L19.9 24 L18.55 20.6 L13.45 20.6 L12.1 24 L8.8 24 Z M14.35 17.95 L17.65 17.95 L16 13.6 Z" fill="#ffffff" />
+      <circle cx="16" cy="9" r="1.4" fill="#ffffff" fillOpacity="0.85" />
+    </svg>
+  );
+}
+
 function SparklesIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">

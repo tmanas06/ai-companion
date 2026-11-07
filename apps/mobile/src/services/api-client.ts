@@ -5,17 +5,37 @@
 
 import { Platform } from 'react-native';
 import { getAccessToken, clearTokens } from './auth-storage';
+import {
+  getPersistedServerUrl,
+  normalizeServerUrl,
+  setPersistedServerUrl,
+} from './server-config';
 
 let customBaseUrl: string | null = null;
 
+/**
+ * Overrides the base URL in-memory. For permanent changes, prefer
+ * persistApiBaseUrl so the value survives app restart.
+ */
 export function setCustomApiBaseUrl(url: string | null) {
-  customBaseUrl = url;
+  customBaseUrl = url ? normalizeServerUrl(url) : null;
+}
+
+export async function persistApiBaseUrl(url: string): Promise<string> {
+  const normalized = await setPersistedServerUrl(url);
+  customBaseUrl = normalized;
+  return normalized;
+}
+
+export async function bootstrapApiBaseUrl(): Promise<void> {
+  const persisted = await getPersistedServerUrl();
+  if (persisted) customBaseUrl = persisted;
 }
 
 export function getApiBaseUrl(): string {
   if (customBaseUrl) return customBaseUrl;
   if (process.env['EXPO_PUBLIC_API_URL']) return process.env['EXPO_PUBLIC_API_URL'];
-  
+
   // Default Android emulator maps 10.0.2.2 to host machine localhost
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:8000';

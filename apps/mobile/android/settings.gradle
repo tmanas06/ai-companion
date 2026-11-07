@@ -44,7 +44,7 @@ if (getRNMinorVersion() >= 75) {
   }
 }
 
-rootProject.name = 'AI Companion'
+rootProject.name = 'AETHRA'
 
 dependencyResolutionManagement {
   versionCatalogs {

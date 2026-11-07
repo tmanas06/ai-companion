@@ -55,7 +55,7 @@ export default function RegisterPage() {
             </div>
           </Link>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Create your account</h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">Start your journey with AI Companion</p>
+          <p className="mt-2 text-slate-600 dark:text-slate-400">Start your journey with AETHRA</p>
         </div>
 
         <div className="bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-neutral-800 p-6 shadow-sm">

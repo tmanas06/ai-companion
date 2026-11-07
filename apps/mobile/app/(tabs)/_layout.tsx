@@ -44,6 +44,15 @@ export default function TabLayout() {
       }}
     />
     <Tabs.Screen
+      name="memories"
+      options={{
+        title: 'Memories',
+        tabBarIcon: ({ focused, color, size }) => (
+          <Ionicons name={focused ? 'bookmark' : 'bookmark-outline'} size={size} color={color} />
+        ),
+      }}
+    />
+    <Tabs.Screen
       name="settings"
       options={{
         title: 'Settings',

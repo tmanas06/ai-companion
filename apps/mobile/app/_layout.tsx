@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import {
@@ -11,6 +12,7 @@ import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
 } from '@expo-google-fonts/jetbrains-mono';
+import { bootstrapApiBaseUrl } from '../src/services/api-client';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -21,8 +23,13 @@ export default function RootLayout() {
     'JetBrainsMono-Regular': JetBrainsMono_400Regular,
     'JetBrainsMono-Medium': JetBrainsMono_500Medium,
   });
+  const [configReady, setConfigReady] = useState(false);
 
-  if (!fontsLoaded) {
+  useEffect(() => {
+    bootstrapApiBaseUrl().finally(() => setConfigReady(true));
+  }, []);
+
+  if (!fontsLoaded || !configReady) {
     return null;
   }
 
