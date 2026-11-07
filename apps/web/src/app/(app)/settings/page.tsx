@@ -45,6 +45,16 @@ export default function SettingsPage() {
             <div>
               <p className="text-lg font-semibold text-slate-900 dark:text-white">{user.fullName || user.email}</p>
               <p className="text-slate-500 dark:text-slate-400">{user.email}</p>
+              {user.wallet_address && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 font-mono font-medium">
+                    EVM Wallet
+                  </span>
+                  <code className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded select-all">
+                    {user.wallet_address}
+                  </code>
+                </div>
+              )}
             </div>
           </div>
 

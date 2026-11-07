@@ -12,6 +12,10 @@ class UserLogin(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -20,12 +24,14 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    wallet_address: str | None = None
 
 
 class UserResponse(BaseModel):
     id: str
     email: EmailStr
     full_name: str | None
+    wallet_address: str | None = None
     is_active: bool
     created_at: str
 

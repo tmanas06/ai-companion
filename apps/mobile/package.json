@@ -19,6 +19,7 @@
     "@ai-companion/shared": "workspace:*",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@expo/vector-icons": "^14.0.0",
     "@react-native-community/slider": "4.5.2",
     "expo": "~51.0.0",
     "expo-asset": "~10.0.6",

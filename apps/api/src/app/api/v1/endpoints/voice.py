@@ -18,7 +18,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from app.core.security import get_current_user
-from app.core.exceptions import ProviderConfigurationError
+from app.core.exceptions import PrivacyViolationError, ProviderConfigurationError
 from app.models import User
 from app.schemas.voice import (
     GreetingRequest,
@@ -239,6 +239,8 @@ async def voice_turn(
             filename=filename,
             background_tasks=background_tasks,
         )
+    except (ProviderConfigurationError, PrivacyViolationError):
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -272,6 +274,8 @@ async def voice_turn_json(
             voice=request.voice,
             background_tasks=background_tasks,
         )
+    except (ProviderConfigurationError, PrivacyViolationError):
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -297,6 +301,8 @@ async def voice_greeting(
             voice=request.voice,
             background_tasks=background_tasks,
         )
+    except (ProviderConfigurationError, PrivacyViolationError):
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:

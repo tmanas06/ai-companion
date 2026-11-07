@@ -27,6 +27,18 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(PG_UUID(as_uuid=True), nullable=True),
     )
+    wallet_address: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(42), unique=True, nullable=True, index=True),
+    )
+    encrypted_wallet_key: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    google_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(100), unique=True, nullable=True, index=True),
+    )
     is_active: bool = Field(default=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

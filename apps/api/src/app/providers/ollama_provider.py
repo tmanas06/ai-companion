@@ -3,6 +3,7 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from app.core.exceptions import ProviderConfigurationError
+from app.core.logging import get_logger
 from app.providers import (
     BaseProvider,
     CompletionRequest,
@@ -10,6 +11,8 @@ from app.providers import (
     ProviderType,
     StreamingChunk,
 )
+
+logger = get_logger(__name__)
 
 
 class OllamaProvider(BaseProvider):
@@ -84,13 +87,10 @@ class OllamaProvider(BaseProvider):
             )
 
     async def pull_model(self, model: str) -> None:
-        """Explicitly pull a model from the registry.
-
-        Must only be invoked by deliberate administrative or operator action.
-        """
+        """Pull a model from the registry if missing."""
         client = await self._get_client()
         try:
-            pull_response = await client.post("/api/pull", json={"name": model}, timeout=600.0)
+            pull_response = await client.post("/api/pull", json={"name": model, "stream": False}, timeout=1800.0)
             pull_response.raise_for_status()
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e

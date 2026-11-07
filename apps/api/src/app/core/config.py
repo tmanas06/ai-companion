@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     ENABLE_OAUTH_GOOGLE: bool = True
     ENABLE_OAUTH_APPLE: bool = False
     ENABLE_OAUTH_GITHUB: bool = True
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
 
     TTS_PROVIDER: str = "edge-tts"
     TTS_VOICE: str = "en-US-AriaNeural"

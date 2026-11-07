@@ -9,7 +9,10 @@ import httpx
 
 from app.core.config import settings as app_settings
 from app.core.exceptions import PrivacyViolationError, ProviderConfigurationError
+from app.core.logging import get_logger
 from app.providers.privacy import validate_provider_privacy
+
+logger = get_logger(__name__)
 
 
 class BaseEmbeddingProvider(ABC):
@@ -116,10 +119,25 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             for inst in installed_models
         )
         if not found:
-            raise ProviderConfigurationError(
-                f"Embedding model '{self._model}' is not installed in Ollama. "
-                f"Please install it explicitly via 'ollama pull {self._model}'."
-            )
+            logger.info("ollama_embedding_model_missing_auto_pulling", model=self._model)
+            try:
+                await self.pull_model(self._model)
+            except Exception as pull_err:
+                raise ProviderConfigurationError(
+                    f"Embedding model '{self._model}' is not installed in Ollama and auto-download failed: {pull_err}. "
+                    f"Please install it explicitly via 'ollama pull {self._model}'."
+                ) from pull_err
+
+    async def pull_model(self, model: str) -> None:
+        """Pull missing embedding model from Ollama registry."""
+        client = await self._get_client()
+        try:
+            pull_response = await client.post("/api/pull", json={"name": model, "stream": False}, timeout=600.0)
+            pull_response.raise_for_status()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            raise ProviderConfigurationError(f"Ollama server is unreachable at {self.base_url}") from e
+        except httpx.HTTPError as e:
+            raise ProviderConfigurationError(f"Failed to pull embedding model '{model}': {e}") from e
 
     def _validate_vector(self, vector: list) -> list[float]:
         """Validate vector shape, dimension, and finite numeric values."""

@@ -146,6 +146,40 @@ echo -e "\n${BOLD}[4/5] Running Alembic database migrations...${RESET}"
 (cd apps/api && uv run alembic upgrade head)
 echo -e "${GREEN}✓ Database schema is up to date.${RESET}"
 
+# ------------------------------------------------------------------------------
+# Check & Download Ollama Models Automatically
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[*] Checking Ollama AI models...${RESET}"
+if command -v ollama &> /dev/null; then
+    OLLAMA_MODEL=$(grep -E "^OLLAMA_DEFAULT_MODEL=" .env 2>/dev/null | cut -d '=' -f2 || echo "llama3.1:8b")
+    EMBED_MODEL=$(grep -E "^EMBEDDING_MODEL=" .env 2>/dev/null | cut -d '=' -f2 || echo "nomic-embed-text")
+    OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+    EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+
+    if curl -s http://localhost:11434/api/tags &> /dev/null; then
+        INSTALLED=$(curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || true)
+
+        # 1. Embedding Model
+        if echo "$INSTALLED" | grep -q "$EMBED_MODEL"; then
+            echo -e "${GREEN}✓ Embedding model '${EMBED_MODEL}' is ready.${RESET}"
+        else
+            echo -e "${YELLOW}Downloading embedding model '${EMBED_MODEL}'...${RESET}"
+            ollama pull "$EMBED_MODEL" || true
+        fi
+
+        # 2. LLM Companion Model
+        OLLAMA_BASE=$(echo "$OLLAMA_MODEL" | cut -d':' -f1)
+        if echo "$INSTALLED" | grep -q "$OLLAMA_BASE"; then
+            echo -e "${GREEN}✓ Companion model '${OLLAMA_MODEL}' is ready.${RESET}"
+        else
+            echo -e "${YELLOW}Downloading companion model '${OLLAMA_MODEL}'...${RESET}"
+            ollama pull "$OLLAMA_MODEL" || true
+        fi
+    else
+        echo -e "${YELLOW}Note: Ollama server is not running on port 11434. Start Ollama to use local AI models.${RESET}"
+    fi
+fi
+
 if [[ "$MODE" == "infra_only" ]]; then
     echo -e "\n${GREEN}${BOLD}✓ Infrastructure is up and database is migrated!${RESET}"
     exit 0
@@ -155,6 +189,15 @@ fi
 # 5. Start Application Services
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[5/5] Starting application servers...${RESET}"
+
+# Ensure dev ports (8000, 3000) are free
+for port in 8000 3000; do
+    pid=$(lsof -ti :$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+        echo -e "${YELLOW}Freeing up port $port (stopping stale process $pid)...${RESET}"
+        kill -9 $pid 2>/dev/null || true
+    fi
+done
 
 echo -e "\n${CYAN}${BOLD}------------------------------------------------------------${RESET}"
 echo -e "${BOLD}🚀 Active Services & Endpoints:${RESET}"

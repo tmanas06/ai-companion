@@ -11,6 +11,7 @@ interface User {
   email: string;
   fullName?: string | null;
   full_name?: string | null;
+  wallet_address?: string | null;
   is_active?: boolean;
 }
 
@@ -20,6 +21,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName?: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -82,6 +84,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data);
   }
 
+  async function loginWithGoogle(credential: string) {
+    const response = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || 'Google authentication failed');
+    }
+
+    // Refresh user to get profile including wallet_address
+    await refreshUser();
+  }
+
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     setUser(null);
@@ -96,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         login,
         register,
+        loginWithGoogle,
         logout,
         refreshUser,
       }}
