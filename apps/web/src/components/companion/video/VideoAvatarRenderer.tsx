@@ -311,11 +311,11 @@ export const VideoAvatarRenderer: React.FC<VideoAvatarRendererProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-950 select-none ${className}`}
+      className={`relative w-full h-full overflow-hidden flex items-center justify-center bg-[#0a0a0a] select-none ${className}`}
       data-testid="video-avatar-container"
     >
-      {/* Ambient Bokeh Backdrop: smooth studio illumination behind the portrait */}
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-violet-950/20 via-slate-950/80 to-slate-950" />
+      {/* Ambient Backdrop: smooth neutral studio illumination behind the portrait */}
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-neutral-900/30 via-[#0a0a0a]/90 to-[#0a0a0a]" />
 
       {/* Main High-Definition Portrait Frame (Maintains 1:1 bust framing without zooming into the nose) */}
       <div className="relative h-full aspect-square max-h-[85vh] max-w-full flex items-center justify-center overflow-hidden shadow-2xl rounded-2xl sm:rounded-3xl border border-slate-800/40">

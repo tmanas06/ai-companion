@@ -28,7 +28,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a]">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -41,7 +41,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700',
+          'fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#0c0c0c] border-r border-slate-200 dark:border-neutral-800',
           'transform transition-transform duration-200 ease-in-out lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
@@ -49,7 +49,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200 dark:border-neutral-800">
             <Link href="/chat" className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center">
                 <SparklesIcon className="w-5 h-5 text-white" />
@@ -77,7 +77,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-neutral-900 hover:text-slate-900 dark:hover:text-white'
                   )}
                   aria-current={isActive ? 'page' : undefined}
                 >
@@ -89,7 +89,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+          <div className="p-4 border-t border-slate-200 dark:border-neutral-800">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                 <UserIcon className="w-5 h-5 text-primary-700 dark:text-primary-300" />
@@ -105,7 +105,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
             <button
               onClick={logout}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-neutral-900 rounded-lg transition-colors"
             >
               <LogOutIcon className="w-4 h-4" />
               Sign out
@@ -117,7 +117,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main content */}
       <div className="lg:pl-64">
         {/* Mobile header */}
-        <header className="lg:hidden sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+        <header className="lg:hidden sticky top-0 z-30 bg-white dark:bg-[#0c0c0c] border-b border-slate-200 dark:border-neutral-800">
           <div className="flex items-center justify-between h-16 px-4">
             <button
               onClick={() => setSidebarOpen(true)}

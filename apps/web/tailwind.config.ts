@@ -8,6 +8,11 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        slate: {
+          950: '#0a0a0a',
+          900: '#121212',
+          850: '#181818',
+        },
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',

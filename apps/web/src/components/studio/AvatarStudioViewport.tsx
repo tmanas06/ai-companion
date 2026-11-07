@@ -89,7 +89,7 @@ export const AvatarStudioViewport: React.FC<AvatarStudioViewportProps> = ({
   isTestSpeaking,
 }) => {
   return (
-    <div className="relative w-full h-full min-h-[420px] bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
+    <div className="relative w-full h-full min-h-[420px] bg-gradient-to-b from-neutral-900 via-[#0a0a0a] to-neutral-900 rounded-2xl overflow-hidden border border-neutral-800 shadow-2xl">
       {/* 3D WebGL Canvas */}
       <Canvas
         shadows={false}

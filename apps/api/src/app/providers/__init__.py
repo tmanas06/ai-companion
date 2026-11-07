@@ -8,6 +8,7 @@ class ProviderType(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
+    ZERO_G = "0g"
     MOCK = "mock"
 
 
@@ -171,6 +172,7 @@ from app.core.exceptions import PrivacyViolationError, ProviderConfigurationErro
 from app.providers.openai_provider import OpenAIProvider
 from app.providers.anthropic_provider import AnthropicProvider
 from app.providers.ollama_provider import OllamaProvider
+from app.providers.og_provider import OGProvider
 from app.providers.privacy import is_loopback_endpoint, validate_provider_privacy
 from app.providers.factory import (
     initialize_providers,
@@ -195,6 +197,7 @@ __all__ = [
     "OpenAIProvider",
     "AnthropicProvider",
     "OllamaProvider",
+    "OGProvider",
     "ProviderRegistry",
     "provider_registry",
     "initialize_providers",

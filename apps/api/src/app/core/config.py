@@ -57,6 +57,14 @@ class Settings(BaseSettings):
         description="Maximum Ollama context window. Smaller values reduce local memory use and latency.",
     )
 
+    # 0G Router is used only for blockchain-related requests. Keep this key server-side.
+    OG_API_KEY: str | None = None
+    OG_BASE_URL: str = "https://router-api.0g.ai/v1"
+    OG_DEFAULT_MODEL: str = "0gm-1.0-35b-a3b"
+    OG_VOICE_MODEL: str = "qwen-max"
+    OG_RPC_URL: str = "https://evmrpc.0g.ai"
+    OG_CHAIN_NAME: str = "0G Mainnet"
+
     EMBEDDING_PROVIDER: str | None = Field(
         default=None,
         description="Explicit embedding provider override ('ollama', 'mock'). Defaults based on PRIVACY_MODE.",

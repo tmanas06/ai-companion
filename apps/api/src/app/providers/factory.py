@@ -12,6 +12,7 @@ from app.providers import (
 )
 from app.providers.anthropic_provider import AnthropicProvider
 from app.providers.ollama_provider import OllamaProvider
+from app.providers.og_provider import OGProvider
 from app.providers.openai_provider import OpenAIProvider
 from app.providers.privacy import validate_provider_privacy
 
@@ -27,6 +28,9 @@ def initialize_providers(settings: Optional["Settings"] = None) -> ProviderRegis
     # Register Ollama if base URL is configured
     if cfg.OLLAMA_BASE_URL:
         registry.register(OllamaProvider(base_url=cfg.OLLAMA_BASE_URL))
+
+    if cfg.OG_API_KEY:
+        registry.register(OGProvider(api_key=cfg.OG_API_KEY, base_url=cfg.OG_BASE_URL))
 
     # Register OpenAI if API key is configured
     if cfg.OPENAI_API_KEY:
@@ -162,7 +166,17 @@ def get_provider(
             active_registry.register(provider)
             return provider
 
+    elif target in ("0g", "zero-g", "og"):
+        if not cfg.OG_API_KEY:
+            raise ProviderConfigurationError("0G provider requested, but OG_API_KEY is not configured.")
+        try:
+            return active_registry.get(ProviderType.ZERO_G)
+        except ProviderConfigurationError:
+            provider = OGProvider(api_key=cfg.OG_API_KEY, base_url=cfg.OG_BASE_URL)
+            active_registry.register(provider)
+            return provider
+
     else:
         raise ProviderConfigurationError(
-            f"Unknown provider '{target}'. Permitted providers are: 'ollama', 'openai', 'anthropic', 'mock'."
+            f"Unknown provider '{target}'. Permitted providers are: 'ollama', '0g', 'openai', 'anthropic', 'mock'."
         )

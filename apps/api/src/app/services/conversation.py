@@ -261,12 +261,18 @@ class ConversationService:
 
         # 2. Get AI provider (enforcing global privacy mode before prompt or history is sent or persisted)
         companion_llm_config = companion.llm_config or {}
-        requested_provider = companion_llm_config.get("provider")
+        from app.services.blockchain import get_native_balance, is_blockchain_request
+
+        blockchain_request = is_blockchain_request(request.message)
+        requested_provider = "0g" if blockchain_request else companion_llm_config.get("provider")
         provider = get_provider(provider_type=requested_provider)
-        model = companion_llm_config.get("model") or provider.get_default_model()
+        is_voice = getattr(request, "voice_mode", False)
+        from app.core.config import settings
+        model = companion_llm_config.get("model") or (
+            settings.OG_VOICE_MODEL if blockchain_request and is_voice else provider.get_default_model()
+        )
 
         # 3. Build context for AI (prior messages + current user message)
-        is_voice = getattr(request, "voice_mode", False)
         if conversation:
             history_limit = 4 if is_voice else 20
             recent_messages = await self.get_recent_messages(conversation.id, limit=history_limit)
@@ -285,6 +291,24 @@ class ConversationService:
             personality=companion.personality,
             base_prompt=companion.system_prompt,
         )
+        if blockchain_request:
+            wallet_context = "The user has no wallet address available in this session."
+            if user_wallet := await self.session.get(User, user_id):
+                if user_wallet.wallet_address:
+                    try:
+                        snapshot = await get_native_balance(user_wallet.wallet_address)
+                        wallet_context = (
+                            "Verified read-only wallet data from the 0G RPC (do not invent values):\n"
+                            f"{snapshot}"
+                        )
+                    except Exception:
+                        wallet_context = f"The user's wallet address is {user_wallet.wallet_address}; balance lookup failed."
+            system_prompt = (
+                system_prompt
+                + "\n\n[BLOCKCHAIN MODE] Answer using the verified wallet data below. Never claim a transaction was sent. "
+                "Ask for confirmation before any future write action.\n"
+                + wallet_context
+            ).strip()
         if not is_voice:
             try:
                 from app.core.config import settings
@@ -335,7 +359,7 @@ class ConversationService:
             system_prompt = (system_prompt + voice_instructions).strip()
 
         # 4. Generate AI response (no database locks or open transactions held during LLM call)
-        max_tokens = 48 if is_voice else companion_llm_config.get("max_tokens")
+        max_tokens = 160 if (is_voice and blockchain_request) else (48 if is_voice else companion_llm_config.get("max_tokens"))
         completion_request = CompletionRequest(
             messages=messages,
             model=model,
@@ -418,9 +442,15 @@ class ConversationService:
         companion_id = companion.id
 
         companion_llm_config = companion.llm_config or {}
-        requested_provider = companion_llm_config.get("provider")
+        from app.services.blockchain import get_native_balance, is_blockchain_request
+
+        blockchain_request = is_blockchain_request(request.message)
+        requested_provider = "0g" if blockchain_request else companion_llm_config.get("provider")
         provider = get_provider(provider_type=requested_provider)
-        model = companion_llm_config.get("model") or provider.get_default_model()
+        from app.core.config import settings
+        model = companion_llm_config.get("model") or (
+            settings.OG_VOICE_MODEL if blockchain_request and request.voice_mode else provider.get_default_model()
+        )
 
         # Build context for AI (prior messages + current user message)
         if conversation:
@@ -436,6 +466,20 @@ class ConversationService:
             personality=companion.personality,
             base_prompt=companion.system_prompt,
         )
+        if blockchain_request:
+            wallet_context = "The user has no wallet address available in this session."
+            if user_wallet := await self.session.get(User, user_id):
+                if user_wallet.wallet_address:
+                    try:
+                        snapshot = await get_native_balance(user_wallet.wallet_address)
+                        wallet_context = f"Verified read-only wallet data from 0G RPC:\n{snapshot}"
+                    except Exception:
+                        wallet_context = f"The user's wallet address is {user_wallet.wallet_address}; balance lookup failed."
+            system_prompt = (
+                system_prompt
+                + "\n\n[BLOCKCHAIN MODE] Use only the verified wallet data below. Never claim a transaction was sent.\n"
+                + wallet_context
+            ).strip()
         try:
             from app.core.config import settings
             from app.providers.embedding import get_embedding_provider
@@ -517,7 +561,7 @@ class ConversationService:
                 messages=messages,
                 model=model,
                 temperature=companion_llm_config.get("temperature", 0.7),
-                max_tokens=companion_llm_config.get("max_tokens"),
+                max_tokens=(160 if blockchain_request and is_voice else companion_llm_config.get("max_tokens")),
                 system_prompt=system_prompt,
                 stream=True,
             )

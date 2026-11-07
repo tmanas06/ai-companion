@@ -451,10 +451,10 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
         <div
           className={`absolute inset-0 pointer-events-none transition-all duration-1000 ${
             activeSpeaking
-              ? 'opacity-45 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(139,92,246,0.32)_0%,transparent_70%)]'
+              ? 'opacity-25 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(255,255,255,0.08)_0%,transparent_70%)]'
               : isListening
-              ? 'opacity-40 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(52,211,153,0.28)_0%,transparent_70%)]'
-              : 'opacity-20 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(99,102,241,0.18)_0%,transparent_70%)]'
+              ? 'opacity-35 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(52,211,153,0.22)_0%,transparent_70%)]'
+              : 'opacity-10 bg-[radial-gradient(ellipse_55%_65%_at_50%_38%,rgba(255,255,255,0.04)_0%,transparent_70%)]'
           }`}
           aria-hidden="true"
         />
@@ -611,12 +611,12 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
           aria-hidden="true"
         />
 
-        {/* ── Cinematic Colour Grade (cool top, warm bottom — filmic look) ── */}
+        {/* ── Cinematic Colour Grade ── */}
         <div
-          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          className="absolute inset-0 pointer-events-none opacity-[0.04]"
           style={{
-            background: 'linear-gradient(180deg, rgba(99,102,241,0.5) 0%, transparent 45%, rgba(251,191,36,0.25) 100%)',
-            mixBlendMode: 'color',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 45%, rgba(0,0,0,0.3) 100%)',
+            mixBlendMode: 'overlay',
           }}
           aria-hidden="true"
         />
@@ -641,7 +641,7 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
   // 2. Compact / Standalone Card Mode (Companion Switchers, Onboarding, Previews)
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center bg-slate-950 select-none ${stateAura} ${className}`}
+      className={`relative overflow-hidden rounded-3xl transition-all duration-300 flex items-center justify-center bg-[#0a0a0a] select-none ${stateAura} ${className}`}
       style={{ width: size, height: size }}
     >
       {/* Speaking soundwave ripple rings */}

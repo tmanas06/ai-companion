@@ -381,7 +381,7 @@ export default function CompanionPage() {
             {/* Customizer card */}
             <Link
               href="/onboarding/companion"
-              className="bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-pink-500/10 border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-500 rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all group"
+              className="bg-neutral-900/40 hover:bg-neutral-900/70 border-2 border-dashed border-neutral-700 hover:border-neutral-500 rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all group"
             >
               <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center mb-3 shadow-md shadow-indigo-500/30 group-hover:scale-110 transition-transform">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

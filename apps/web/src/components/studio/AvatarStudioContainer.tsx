@@ -151,7 +151,7 @@ export const AvatarStudioContainer: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row w-full h-[calc(100vh-4rem)] p-4 lg:p-6 gap-6 bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col lg:flex-row w-full h-[calc(100vh-4rem)] p-4 lg:p-6 gap-6 bg-[#0a0a0a] text-slate-100 overflow-hidden">
       {/* LEFT COLUMN: 3D Live Interactive Viewport */}
       <div className="flex-1 flex flex-col min-w-0 h-full">
         {/* Header Bar */}

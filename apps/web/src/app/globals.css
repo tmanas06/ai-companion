@@ -33,8 +33,22 @@ a {
 @media (prefers-color-scheme: dark) {
   body {
     color: rgb(248, 250, 252);
-    background: rgb(15, 23, 42);
+    background: #0a0a0a;
   }
+}
+
+.bg-cross-grid {
+  background-color: #0a0a0a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M12 9.5v5M9.5 12h5' stroke='rgba(255, 255, 255, 0.08)' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-size: 24px 24px;
+}
+
+.bg-cross-grid-vignette {
+  background-color: #0a0a0a;
+  background-image: 
+    radial-gradient(ellipse at center, rgba(10, 10, 10, 0.15) 0%, rgba(10, 10, 10, 0.8) 75%, #0a0a0a 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M12 9.5v5M9.5 12h5' stroke='rgba(255, 255, 255, 0.08)' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-size: 100% 100%, 24px 24px;
 }
 
 ::selection {

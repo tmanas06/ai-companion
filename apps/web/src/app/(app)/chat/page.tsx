@@ -341,10 +341,13 @@ function LiveCompanionStage() {
   const style = personality?.style || 'anime';
 
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between overflow-hidden bg-slate-950 text-slate-100 select-none">
+    <div className="relative min-h-[calc(100vh-4rem)] flex flex-col justify-between overflow-hidden bg-[#0a0a0a] text-slate-100 select-none">
+      {/* Plus/Cross Grid & Vignette Background Layer */}
+      <div className="absolute inset-0 pointer-events-none bg-cross-grid-vignette opacity-80" aria-hidden="true" />
+
       {!voiceReady && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-6">
-          <div className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900 p-7 text-center shadow-2xl">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#0a0a0a]/90 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md rounded-3xl border border-neutral-800 bg-[#121212] p-7 text-center shadow-2xl">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-600/20 text-3xl">🎙️</div>
             <h1 className="text-xl font-semibold text-white">Start your voice chat</h1>
             <p className="mt-2 text-sm leading-6 text-slate-400">
@@ -360,28 +363,28 @@ function LiveCompanionStage() {
           </div>
         </div>
       )}
-      {/* Dynamic Ambient Background Glow */}
+      {/* Dynamic Ambient Voice State Glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div
-          className={`absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[700px] rounded-full blur-[140px] opacity-25 transition-all duration-700 ${
+          className={`absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full blur-[140px] transition-all duration-700 ${
             state === 'listening'
-              ? 'bg-emerald-500'
+              ? 'bg-emerald-500/15 opacity-100'
               : state === 'speaking'
-              ? 'bg-violet-500'
+              ? 'bg-emerald-500/10 opacity-70'
               : state === 'generating_response'
-              ? 'bg-indigo-500'
-              : 'bg-indigo-900'
+              ? 'bg-white/5 opacity-50'
+              : 'opacity-0'
           }`}
         />
       </div>
 
       {/* Top Header Bar */}
-      <header className="relative z-20 flex items-center justify-between p-4 sm:p-6 border-b border-slate-900/80 bg-slate-950/40 backdrop-blur-md">
+      <header className="relative z-20 flex items-center justify-between p-4 sm:p-6 border-b border-neutral-800/80 bg-[#0a0a0a]/60 backdrop-blur-md">
         {/* Left: Companion Switcher & Details */}
         <div className="relative flex items-center space-x-3.5">
           <Link
             href="/companion"
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-slate-800/80 transition"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-neutral-900 border border-neutral-800 transition"
             title="Exit to Companions Hub"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -602,7 +605,7 @@ function LiveCompanionStage() {
 
         {/* Floating Live Speech Subtitle / Caption Deck */}
         <div className="relative z-20 w-full max-w-xl px-4 pb-2">
-          <div className="min-h-[4rem] px-5 py-3 rounded-2xl bg-slate-950/75 backdrop-blur-md border border-slate-900/80 shadow-2xl flex items-center justify-center text-center">
+          <div className="min-h-[4rem] px-5 py-3 rounded-2xl bg-[#0a0a0a]/80 backdrop-blur-md border border-neutral-800/80 shadow-2xl flex items-center justify-center text-center">
             {state === 'speaking' || lastCompanionSpeech ? (
               <div className="space-y-1 animate-in fade-in duration-300">
                 <div className="flex items-center justify-center space-x-2">
@@ -681,7 +684,7 @@ function LiveCompanionStage() {
       </main>
 
       {/* Bottom Control Deck */}
-      <footer className="relative z-20 pb-8 pt-4 px-4 flex flex-col items-center justify-center border-t border-slate-900/60 bg-slate-950/60 backdrop-blur-lg">
+      <footer className="relative z-20 pb-8 pt-4 px-4 flex flex-col items-center justify-center border-t border-neutral-800/60 bg-[#0a0a0a]/80 backdrop-blur-lg">
         {/* Free-Flow Voice Mode Toggle Pill */}
         <div className="mb-4 flex items-center justify-center">
           <button
@@ -870,7 +873,7 @@ export default function ChatPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a]">
           <div className="animate-spin rounded-full h-10 w-10 border-4 border-violet-500 border-t-transparent" />
         </div>
       }

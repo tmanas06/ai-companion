@@ -87,7 +87,7 @@ def validate_provider_privacy(
     normalized_mode = privacy_mode.lower().strip()
 
     if normalized_mode == "strict-local":
-        if normalized_type in ("openai", "anthropic"):
+        if normalized_type in ("openai", "anthropic", "0g", "zero-g", "og"):
             raise PrivacyViolationError(
                 f"Hosted cloud provider '{normalized_type}' is prohibited under strict-local privacy mode."
             )
@@ -112,7 +112,7 @@ def validate_provider_privacy(
                 raise ProviderConfigurationError("Mock provider is disabled in production.")
 
     elif normalized_mode == "private-machine":
-        if normalized_type in ("openai", "anthropic"):
+        if normalized_type in ("openai", "anthropic", "0g", "zero-g", "og"):
             raise PrivacyViolationError(
                 f"Hosted cloud provider '{normalized_type}' is prohibited under private-machine privacy mode."
             )
