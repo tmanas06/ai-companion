@@ -1,0 +1,31 @@
+# Only apps/web + packages/shared are needed for the web deploy.
+apps/mobile/
+apps/api/
+docs/
+scripts/
+node_modules/
+**/node_modules/
+.expo/
+**/.expo/
+.turbo/
+**/.turbo/
+.next/
+**/.next/
+dist/
+**/dist/
+!packages/shared/dist/
+coverage/
+**/coverage/
+.gradle/
+.cxx/
+
+# Any stray native/generated stuff
+*.gguf
+*.bin
+aethra-models/
+**/android/
+**/ios/
+
+# OS junk + logs
+.DS_Store
+*.log

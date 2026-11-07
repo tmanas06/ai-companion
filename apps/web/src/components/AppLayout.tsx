@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Chat', href: '/chat', icon: ChatIcon },
   { name: 'Companion', href: '/companion', icon: CompanionIcon },
-  { name: 'Avatar Studio', href: '/studio', icon: SparklesIcon },
   { name: 'Memories', href: '/memories', icon: MemoryIcon },
   { name: 'Settings', href: '/settings', icon: SettingsIcon },
 ];

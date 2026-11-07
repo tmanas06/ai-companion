@@ -11,6 +11,7 @@ build
 
 # Turbo
 .turbo
+.vercel
 
 # Environment files
 .env
