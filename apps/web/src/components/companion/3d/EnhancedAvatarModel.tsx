@@ -16,6 +16,7 @@ import {
   ModelBoundingMetrics,
 } from './animation-mappings';
 import { Avatar3DConfig, migrateAvatarConfig } from '@ai-companion/shared';
+import { QualityConfig } from './quality';
 
 export interface EnhancedAvatarModelProps {
   modelUrl?: string;
@@ -29,6 +30,7 @@ export interface EnhancedAvatarModelProps {
   reducedMotion?: boolean;
   onMetricsLoaded?: (metrics: ModelBoundingMetrics) => void;
   onTapReaction?: (reactionType: 'head' | 'body') => void;
+  qualityConfig?: QualityConfig;
 }
 
 const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -135,6 +137,20 @@ export const EnhancedAvatarModel: React.FC<EnhancedAvatarModelProps> = ({
       mixerRef.current = null;
     };
   }, [avatarGLTF.scene, avatarGLTF.animations, animationsGLTF.animations]);
+
+  const separateEyeGeometry = useCallback(() => {
+    if (!avatarGLTF.scene) return;
+
+    avatarGLTF.scene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const meshName = child.name.toLowerCase();
+      if (meshName === 'low-poly' || meshName.includes('eye')) {
+        // If the eye mesh has multiple material slots, we can assign different materials
+        // For now, we'll rely on the upgraded physical eye material
+        // A full separation would require geometry splitting which is complex at runtime
+      }
+    });
+  }, [avatarGLTF.scene]);
 
   // 2. Compute model bounding box and enhance materials with PhysicalMaterial + SSS
   useEffect(() => {
@@ -266,7 +282,7 @@ export const EnhancedAvatarModel: React.FC<EnhancedAvatarModelProps> = ({
         }
       });
     };
-  }, [avatarGLTF.scene, onMetricsLoaded, parsed3DConfig]);
+  }, [avatarGLTF.scene, onMetricsLoaded, parsed3DConfig, separateEyeGeometry]);
 
   // Material upgrade functions
   function upgradeToPhysicalSkin(
@@ -424,7 +440,7 @@ export const EnhancedAvatarModel: React.FC<EnhancedAvatarModelProps> = ({
   function upgradeClothingMaterial(
     mat: THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial,
     config: Avatar3DConfig | null,
-    meshName: string
+    _meshName: string
   ) {
     mat.roughness = 0.82;
     mat.metalness = 0.0;
@@ -440,7 +456,7 @@ export const EnhancedAvatarModel: React.FC<EnhancedAvatarModelProps> = ({
 
   function upgradeShoeMaterial(
     mat: THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial,
-    meshName: string
+    _meshName: string
   ) {
     mat.roughness = 0.55;
     mat.metalness = 0.05;
@@ -448,22 +464,6 @@ export const EnhancedAvatarModel: React.FC<EnhancedAvatarModelProps> = ({
       mat.clearcoat = 0.1;
       mat.clearcoatRoughness = 0.3;
     }
-  }
-
-  // Separate eye geometry into cornea/iris/sclera if geometry supports it
-  function separateEyeGeometry() {
-    if (!avatarGLTF.scene) return;
-
-    avatarGLTF.scene.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      const meshName = child.name.toLowerCase();
-      if (meshName === 'low-poly' || meshName.includes('eye')) {
-        const mesh = child as THREE.Mesh;
-        // If the eye mesh has multiple material slots, we can assign different materials
-        // For now, we'll rely on the upgraded physical eye material
-        // A full separation would require geometry splitting which is complex at runtime
-      }
-    });
   }
 
   // Rotate talking animation variants

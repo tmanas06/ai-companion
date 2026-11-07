@@ -340,7 +340,9 @@ class VoiceService:
             background_tasks=background_tasks,
         )
 
-        # 5. Synthesize TTS audio for companion's reply with gender enforcement
+        # 5. Synthesize TTS audio for companion's reply with gender enforcement.
+        # TTS is intentionally non-fatal: an intermittent external TTS failure
+        # must not kill the whole voice turn. The text reply is always returned.
         provider_type = getattr(self.tts_provider, "provider_type", "mock")
         companion_gender = infer_companion_gender(companion.name, getattr(companion, "personality", None))
         voice_target = resolve_gender_appropriate_voice(
@@ -349,7 +351,11 @@ class VoiceService:
             gender=companion_gender,
             provider_type=provider_type,
         )
-        audio_data = await self.synthesize_speech(assistant_msg.content, voice=voice_target)
+        audio_data: Optional[bytes] = None
+        try:
+            audio_data = await self.synthesize_speech(assistant_msg.content, voice=voice_target)
+        except Exception:
+            audio_data = None
         audio_b64 = base64.b64encode(audio_data).decode("ascii") if audio_data else None
 
         audio_format = "audio/mpeg" if provider_type in ("edge-tts", "elevenlabs") else "audio/wav"

@@ -22,7 +22,7 @@ export const RectAreaLight: React.FC<RectAreaLightProps> = ({
   height = 1,
   lookAt,
 }) => {
-  const { scene, gl } = useThree();
+  const { scene } = useThree();
   const lightRef = useRef<THREE.RectAreaLight | null>(null);
 
   useEffect(() => {

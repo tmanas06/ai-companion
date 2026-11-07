@@ -21,7 +21,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   Image,
   Animated,
 } from 'react-native';
@@ -143,7 +142,7 @@ interface Photorealistic2DAvatarProps {
 
 function Photorealistic2DAvatar({
   assets,
-  landmarks,
+  landmarks: _landmarks,
   name,
   isSpeaking,
   isListening,
@@ -224,25 +223,6 @@ function Photorealistic2DAvatar({
   }, [activeSpeaking, audioLevel]);
 
   // Voice state visual aura
-  const stateAura = (() => {
-    switch (state) {
-      case 'listening':
-        return 'border-emerald-400/80 shadow-[0_0_40px_rgba(52,211,153,0.35)]';
-      case 'processing_speech':
-      case 'generating_response':
-        return 'border-indigo-500/80 shadow-[0_0_40px_rgba(99,102,241,0.4)]';
-      case 'speaking':
-        return 'border-violet-500/80 shadow-[0_0_45px_rgba(139,92,246,0.45)]';
-      case 'interrupted':
-        return 'border-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.3)]';
-      case 'error':
-        return 'border-rose-500/80 shadow-[0_0_30px_rgba(244,63,94,0.35)]';
-      default:
-        return 'border-slate-800 shadow-2xl';
-    }
-  })();
-
-  // Natural state posture transform
   const postureTransform = (() => {
     if (reducedMotion) return { transform: [] };
     switch (state) {
@@ -542,6 +522,36 @@ export default function ChatScreen() {
     };
   }, []);
 
+  // 2. Simulate Companion Speech with Viseme & Audio Modulation (fallback)
+  const simulateCompanionSpeech = useCallback((text: string) => {
+    // Stop any existing speech
+    if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+    if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+    if (soundRef.current) {
+      soundRef.current.stopAsync().catch(() => {});
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+
+    setIsSpeaking(true);
+    setIsListening(false);
+
+    // Audio level fluctuation simulating speech formants
+    audioIntervalRef.current = setInterval(() => {
+      setAudioLevel(0.25 + Math.random() * 0.55);
+    }, 90);
+
+    // Estimate speaking duration based on word count (approx. 240ms per word)
+    const wordCount = text.split(/\s+/).length;
+    const durationMs = Math.max(2200, Math.min(10000, wordCount * 240));
+
+    speechTimerRef.current = setTimeout(() => {
+      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
+      setIsSpeaking(false);
+      setAudioLevel(0);
+    }, durationMs);
+  }, []);
+
   // Play companion speech using streaming TTS with word-level timestamps
   const playCompanionSpeechStreaming = useCallback(async (text: string, voiceName?: string) => {
     // Cancel any existing playback
@@ -672,37 +682,7 @@ export default function ChatScreen() {
       // Fallback to simulated speech
       simulateCompanionSpeech(text);
     }
-  }, []);
-
-  // 2. Simulate Companion Speech with Viseme & Audio Modulation (fallback)
-  const simulateCompanionSpeech = useCallback((text: string) => {
-    // Stop any existing speech
-    if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
-    if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-    if (soundRef.current) {
-      soundRef.current.stopAsync().catch(() => {});
-      soundRef.current.unloadAsync().catch(() => {});
-      soundRef.current = null;
-    }
-
-    setIsSpeaking(true);
-    setIsListening(false);
-
-    // Audio level fluctuation simulating speech formants
-    audioIntervalRef.current = setInterval(() => {
-      setAudioLevel(0.25 + Math.random() * 0.55);
-    }, 90);
-
-    // Estimate speaking duration based on word count (approx. 240ms per word)
-    const wordCount = text.split(/\s+/).length;
-    const durationMs = Math.max(2200, Math.min(10000, wordCount * 240));
-
-    speechTimerRef.current = setTimeout(() => {
-      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-      setIsSpeaking(false);
-      setAudioLevel(0);
-    }, durationMs);
-  }, []);
+  }, [simulateCompanionSpeech]);
 
   // 3. User Interruption Handling (Resets mouth cleanly)
   const handleInterrupt = useCallback(() => {

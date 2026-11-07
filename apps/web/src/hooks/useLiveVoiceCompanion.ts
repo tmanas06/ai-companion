@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { CompanionVoiceState } from '@/components/companion/AvatarRenderer';
 import {
-  selectVoiceForCompanion,
   getCompanionVoiceProfile,
   isVoiceMatchingGender,
 } from '@/lib/voice-manager';
@@ -580,13 +579,6 @@ export function useLiveVoiceCompanion({
   }, [cleanupMicrophone, stopPlaybackMonitoring, cancelActiveSadTalkerJob]);
 
   // Browser speech synthesis disabled to prevent distorted metallic/espeak voices
-  const playBrowserSpeech = useCallback(
-    (_text: string, _sessionId: number) => {
-      console.warn('[LiveVoice] Browser speech synthesis is disabled. Studio AI voices are enforced.');
-      setState('idle');
-    },
-    []
-  );
 
   // Play assistant audio response with amplitude monitoring
   const playAssistantAudio = useCallback(
@@ -800,7 +792,7 @@ export function useLiveVoiceCompanion({
         if (onError) onError(displayMsg);
       }
     },
-    [companionId, conversationId, onConversationCreated, onError, playAssistantAudio, playBrowserSpeech, voiceSettings, handleSadTalkerJob]
+    [companionId, conversationId, onConversationCreated, onError, playAssistantAudio, voiceSettings, handleSadTalkerJob]
   );
 
   // Start microphone capture

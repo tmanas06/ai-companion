@@ -422,19 +422,6 @@ export const AvatarRenderer: React.FC<AvatarRendererProps> = ({
   const stageBaseImg = fullbodyUrl || previewUrl || portraitUrl;
   const baseImgSrc = stageMode ? stageBaseImg : (previewUrl || portraitUrl);
 
-  // Smooth camera framing transform for stage mode (centered on head/torso at 18% Y)
-  const framingTransformClass = (() => {
-    switch (framing) {
-      case 'face':
-        return 'scale-[2.6] translate-y-[12%]';
-      case 'upper':
-        return 'scale-[1.85] translate-y-[6%]';
-      case 'full':
-      default:
-        return 'scale-100 translate-y-0';
-    }
-  })();
-
   // 1. Full Stage Presentation Mode — GTA-grade Cinematic Rendering
   if (stageMode) {
     // Voice-state reactive rim light colours (simulates GTA bounce lighting)

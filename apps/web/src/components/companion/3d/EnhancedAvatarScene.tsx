@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useCallback, Suspense } from 'react';
+import React, { useRef, useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, useProgress } from '@react-three/drei';
 import * as THREE from 'three';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import {
   AvatarConfig,
   CompanionVoiceState,
@@ -19,6 +18,7 @@ import {
   calculateDynamicLookAt,
   clampCameraDistance,
 } from './animation-mappings';
+import { useQualityConfig, QualityTier } from './quality';
 
 export interface EnhancedAvatarSceneProps {
   modelUrl?: string;
@@ -34,6 +34,7 @@ export interface EnhancedAvatarSceneProps {
   onMetricsLoaded?: (metrics: ModelBoundingMetrics) => void;
   onTapReaction?: (reactionType: 'head' | 'body') => void;
   className?: string;
+  qualityTier?: QualityTier;
 }
 
 interface OrbitControlsRigRef {
@@ -166,10 +167,20 @@ export const EnhancedAvatarScene: React.FC<EnhancedAvatarSceneProps> = ({
   onMetricsLoaded,
   onTapReaction,
   className = '',
+  qualityTier,
 }) => {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [metrics, setMetrics] = useState<ModelBoundingMetrics | null>(null);
-  const [hdriLoaded, setHdriLoaded] = useState(false);
+
+  const qualityConfig = useQualityConfig(qualityTier, { enableAutoDetect: true });
+  const dpr = useMemo(() => qualityConfig.dpr, [qualityConfig.dpr]);
+  const rendererGL = useMemo(() => ({
+    antialias: qualityConfig.antialias,
+    alpha: false,
+    powerPreference: 'high-performance' as const,
+    toneMapping: THREE.ACESFilmicToneMapping,
+    toneMappingExposure: 1.0,
+  }), [qualityConfig.antialias]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -199,14 +210,8 @@ export const EnhancedAvatarScene: React.FC<EnhancedAvatarSceneProps> = ({
           position: [0, CAMERA_ZOOM_LIMITS.DEFAULT_CAMERA_Y, CAMERA_ZOOM_LIMITS.DEFAULT_DISTANCE],
           fov: CAMERA_ZOOM_LIMITS.DEFAULT_FOV,
         }}
-        dpr={typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1}
-        gl={{
-          antialias: true,
-          alpha: false,
-          powerPreference: 'high-performance',
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.0,
-        }}
+        dpr={dpr}
+        gl={rendererGL}
         className="w-full h-full bg-[#0a0f1a]"
       >
         <color attach="background" args={['#0a0f1a']} />
@@ -215,7 +220,7 @@ export const EnhancedAvatarScene: React.FC<EnhancedAvatarSceneProps> = ({
         <Suspense fallback={<CanvasLoader />}>
           <EnhancedStudioEnvironment
             reducedMotion={reducedMotion}
-            onHdriLoaded={setHdriLoaded}
+            qualityConfig={qualityConfig}
           />
         </Suspense>
 
@@ -233,6 +238,7 @@ export const EnhancedAvatarScene: React.FC<EnhancedAvatarSceneProps> = ({
             reducedMotion={reducedMotion}
             onMetricsLoaded={handleMetricsLoaded}
             onTapReaction={onTapReaction}
+            qualityConfig={qualityConfig}
           />
         </Suspense>
 

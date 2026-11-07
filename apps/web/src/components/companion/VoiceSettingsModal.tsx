@@ -24,8 +24,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   onClose,
   settings,
   onUpdateSettings,
-  availableVoices = [],
-  onTestVoice,
   companionGender = 'female',
   companionName,
 }) => {

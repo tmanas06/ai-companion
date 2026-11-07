@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import dynamic from 'next/dynamic';
 import {
   AvatarRenderer,
   AvatarRendererProps,
@@ -24,20 +23,6 @@ import { AvatarEmotion } from '@/lib/avatar-video-manifest';
 import { inferCompanionGender } from '@/lib/companion-presets';
 import { Avatar3DConfig } from '@ai-companion/shared';
 
-// Dynamically lazy-load the Three.js Canvas scene without SSR
-const Dynamic3DScene = dynamic(
-  () => import('./3d/FullBodyAvatarScene').then((mod) => mod.FullBodyAvatarScene),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full flex flex-col items-center justify-center space-y-3 text-slate-400 animate-pulse">
-        <div className="w-12 h-12 rounded-full border-2 border-violet-500/40 border-t-violet-400 animate-spin" />
-        <span className="text-xs font-medium tracking-wider">Preparing 3D Companion...</span>
-      </div>
-    ),
-  }
-);
-
 /**
  * Checks if the client environment supports WebGL.
  */
@@ -51,39 +36,6 @@ function isWebGLSupported(): boolean {
     );
   } catch {
     return false;
-  }
-}
-
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  fallback: React.ReactNode;
-  onError?: (error: Error) => void;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-}
-
-class ThreeErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  override componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.warn('[FullBodyAvatar] 3D Scene error caught, reverting to 2.5D:', error, info);
-    this.props.onError?.(error);
-  }
-
-  override render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-    return this.props.children;
   }
 }
 
@@ -202,8 +154,6 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
   );
   const [activePreset, setActivePreset] = useState<CameraFramingPreset>('full');
   const [metrics, setMetrics] = useState<ModelBoundingMetrics | null>(null);
-  const [fps, setFps] = useState<number | null>(null);
-  const [reactionFeedback, setReactionFeedback] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<AvatarRenderMode>(() => {
     if (initialRenderMode) return initialRenderMode;
     return 'baseline';
@@ -348,13 +298,8 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
 
   const handleTapReaction = useCallback((reactionType: 'head' | 'body') => {
     if (reactionType === 'head') {
-      setReactionFeedback('😊 Giggles!');
     } else {
-      setReactionFeedback('👋 Hello there!');
     }
-    setTimeout(() => {
-      setReactionFeedback(null);
-    }, 2400);
   }, []);
 
   return (
@@ -387,7 +332,6 @@ export const FullBodyAvatar: React.FC<FullBodyAvatarProps> = ({
           visemes={visemes}
           currentTime={currentTime}
           zoomDistance={zoomDistance}
-          onFpsUpdate={setFps}
           onMetricsLoaded={handleMetricsLoaded}
           onTapReaction={handleTapReaction}
           className="w-full h-full"
