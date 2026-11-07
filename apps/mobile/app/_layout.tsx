@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import {
   useFonts,
@@ -13,6 +14,29 @@ import {
   JetBrainsMono_500Medium,
 } from '@expo-google-fonts/jetbrains-mono';
 import { bootstrapApiBaseUrl } from '../src/services/api-client';
+import { useAutoDownload } from '../src/services/model-auto-downloader';
+import { ModelDownloadBanner } from '../src/components/ModelDownloadBanner';
+
+function AppShell() {
+  const autoDownload = useAutoDownload();
+  return (
+    <View style={{ flex: 1, backgroundColor: '#090d16' }}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: '#090d16' }}>
+        <ModelDownloadBanner
+          status={autoDownload}
+          onCancel={autoDownload.cancel}
+          onRetry={autoDownload.retry}
+        />
+      </SafeAreaView>
+      <View style={{ flex: 1 }}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" options={{ headerShown: false }} />
+        </Stack>
+      </View>
+    </View>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -35,10 +59,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" options={{ headerShown: false }} />
-      </Stack>
+      <AppShell />
     </SafeAreaProvider>
   );
 }

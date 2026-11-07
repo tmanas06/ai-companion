@@ -13,7 +13,9 @@ const SERVER_URL_KEY = 'aethra_server_url';
 function defaultServerUrl(): string {
   const envUrl = process.env['EXPO_PUBLIC_API_URL'];
   if (envUrl) return envUrl;
-  if (Platform.OS === 'android') return 'http://10.0.2.2:8000';
+  // Prefer localhost on both platforms. On a real USB-connected phone, `adb
+  // reverse tcp:8000 tcp:8000` forwards localhost to the dev machine. For
+  // standalone APKs the user sets the real LAN URL in Settings.
   return 'http://localhost:8000';
 }
 
